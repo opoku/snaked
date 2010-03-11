@@ -4,6 +4,7 @@
 % message passer does two things
 % 1. sends messages over tcp/udp to specific host/multicasts to all 
 % 2. receives a messages of tcp/udp and then route the message to game_logic or game_manager
+% 3. locks
 
 % the game_logic and game_manager processes are registered processes
 
@@ -40,6 +41,15 @@ find_id(_, []) -> not_found.
 route_message(Host, Port, Msg, HostList) ->
     {ok , {Id, Host, Port}} = find_id({Host, Port}, HostList),
     io:format("Route Message ~p from ~p~n", [Msg, Id]).
+    case element(1, Msg) of
+	rmulti ->
+	    message_passer ! Msg
+	    
+%% 	game_logic ->
+%% 	    game_logic ! Msg;
+%% 	game_manager ->
+%% 	    game_manager ! Msg;
+    end.
 
 loop(Socket, HostList) ->
     receive
@@ -51,9 +61,16 @@ loop(Socket, HostList) ->
 	    io:format("Sending unicast message to id ~p : ~p~n", [Id, Msg]),
 	    usend(Socket, Id, term_to_binary(Msg), HostList),
 	    loop(Socket, HostList);
-	{multicast, Msg} ->
+	{broadcast, Msg} ->
 	    io:format("Sending multicast message : ~p~n", [Msg]),
 	    bsend(Socket, term_to_binary(Msg), HostList),
+	    loop(Socket, HostList);
+	{multicast, Msg} ->
+	    %% reliable multicast
+	    io:format("Sending multicast message : ~p~n", [Msg]),
+	    bsend(Socket, term_to_binary({rmulti, Msg}), HostList),
+	    loop(Socket, HostList);
+	{rmulti, Msg} ->
 	    loop(Socket, HostList);
 	{add, HostConfig} ->
 	    io:format("Adding ~p to HostList ~p~n", [HostConfig, HostList]),
@@ -63,5 +80,23 @@ loop(Socket, HostList) ->
 	{remove, Id} ->
 	    {ok, HostConfig} = find_host(Id, HostList),
 	    io:format("Removing ~p from HostList ~p~n", [HostConfig, HostList]),
-	    loop(Socket, (HostList -- [HostConfig]))
+	    loop(Socket, (HostList -- [HostConfig]));
+	{become, NewLoop} ->
+	    io:format("Running a new loop function ~p~n", [NewLoop]),
+	    NewLoop(Socket, HostList)
     end.
+
+%% Sender: {multicast, Msg} to messagepasser
+
+%% MessagePasser: 
+%% bsend({rmulti, MsgId, Msg})
+
+%% On receive {rmulti, MsgId, Msg}:
+%% 	   Create Acklist [{ack, NodeId_1, MsgId}, ... ]
+%% 	   bsend({ack, MyNode, Msgid})
+
+%% On receive {ack, NodeId, Msgid}:
+%% 	   remove ack from acklist
+%% 	   if acklist is empty,
+%% 	       process the message
+
