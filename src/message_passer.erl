@@ -38,12 +38,17 @@ find_id({Host, Port}, [{Id, Host, Port} | _HostList]) -> {ok, {Id, Host, Port}};
 find_id(Key, [ _ | HostList]) -> find_id(Key, HostList);
 find_id(_, []) -> not_found.
 
+increment(Msg) -> 
+          MsgId = term_to_binary[Msg]+1.
+
 route_message(Host, Port, Msg, HostList) ->
     {ok , {Id, Host, Port}} = find_id({Host, Port}, HostList),
-    io:format("Route Message ~p from ~p~n", [Msg, Id]).
+    io:format("Route Message ~p from ~p~n", [Msg, Id]),
     case element(1, Msg) of
 	rmulti ->
 	    message_passer ! Msg
+
+
 	    
 %% 	game_logic ->
 %% 	    game_logic ! Msg;
@@ -62,16 +67,35 @@ loop(Socket, HostList) ->
 	    usend(Socket, Id, term_to_binary(Msg), HostList),
 	    loop(Socket, HostList);
 	{broadcast, Msg} ->
-	    io:format("Sending multicast message : ~p~n", [Msg]),
+	    io:format("Sending broadcast message : ~p~n", [Msg]),
 	    bsend(Socket, term_to_binary(Msg), HostList),
 	    loop(Socket, HostList);
 	{multicast, Msg} ->
 	    %% reliable multicast
 	    io:format("Sending multicast message : ~p~n", [Msg]),
-	    bsend(Socket, term_to_binary({rmulti, Msg}), HostList),
+		%%increment(Msg),
+	    bsend(Socket, term_to_binary({rmulti, increment(Msg), Msg}), HostList),
 	    loop(Socket, HostList);
-	{rmulti, Msg} ->
-	    loop(Socket, HostList);
+	{rmulti, MsgId, Msg} ->
+%% On receive {rmulti, MsgId, Msg}:
+%% 	   Create Acklist [{ack, NodeId_1, MsgId}, ... ]
+%% 	   bsend({ack, MyNode, Msgid})
+       AckList = [{ack,NodeId,MsgId} || {NodeId,Ip,Port} -> HostList ],
+       bsend(Socket,term_to_binary({ack,NodeId,MsgId}),HostList),
+       loop(Socket,HostList);
+	{ack, NodeId, MsgId} ->
+       AckRecv = {ack,NodeId,MsgId},
+       AckList -- AckRecv,
+
+       case map(_,AckList) of
+        true -> process message?
+        false -> loop(Socket,HostList);
+%% On receive {ack, NodeId, Msgid}:
+%% 	   remove ack from acklist
+%% 	   if acklist is empty,
+%% 	       process the message
+
+%%        loop(Socket, HostList);
 	{add, HostConfig} ->
 	    io:format("Adding ~p to HostList ~p~n", [HostConfig, HostList]),
 	    {Id, Host, Port} = HostConfig,
