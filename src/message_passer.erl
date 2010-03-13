@@ -60,9 +60,11 @@ route_message(Msg, Host, Port, HostList) ->
     route_message(Msg, Id).
 
 loop(Socket, ServerState) ->
+    HostList = ServerState#server_state.host_list,
+    MsgId = ServerState#server_state.msgid,
     receive
 	{udp, Socket, Host, Port, BinMsg} ->
-	    io:format("Received udp message from ~p : ~p~n", [{Host, Port}, Msg]),
+	    io:format("Received udp message from ~p : ~p~n", [{Host, Port}, BinMsg]),
 	    route_message(binary_to_term(BinMsg), Host, Port, HostList),
 	    loop(Socket, ServerState);
 	{unicast, Id, Msg} ->
@@ -80,7 +82,7 @@ loop(Socket, ServerState) ->
 	    McastMsg = {rmulti, ServerState#server_state.myid, NewMsgId, Msg},
 	    bsend(Socket, term_to_binary(McastMsg), HostList),
 	    loop(Socket, ServerState#server_state{msgid=NewMsgId});
-	{rmulti, HostId, MId, Msg} ->
+	{rmulti, HostId, MId, _Msg} = McastMsg ->
 	    %% On receive {rmulti, MsgId, Msg}:
 	    %% 	   Create Acklist [{ack, NodeId_1, MsgId}, ... ]
 	    %% 	   bsend({ack, MyNode, Msgid})
@@ -88,7 +90,7 @@ loop(Socket, ServerState) ->
 	    %% maybe exclude Me in acklist
 	    %% 
 	    Me = ServerState#server_state.myid,
-	    AckList = [{ack,NodeId,HostId,MId} || {NodeId,Ip,Port} -> HostList ],
+	    AckList = [{ack,NodeId,HostId,MId} || {NodeId,_Ip,_Port} <- HostList ],
 
 	    %% send your acks
 	    bsend(Socket,term_to_binary({ack,Me,HostId,MsgId}),HostList),
@@ -99,10 +101,11 @@ loop(Socket, ServerState) ->
 	    
 	    loop(Socket,ServerState#server_state{acklist=AckList, hold_queue = NewHQ});
 	
-	{ack, AckNode, Source, MsgId} = Ack ->
+	{ack, _AckNode, Source, MsgId} = Ack ->
 	    AckList = ServerState#server_state.acklist,
 	    NewAckList = AckList -- Ack,
 	    %% if newacklist is empty
+	    %% BUGGGG: fix a bug here with getting the message from the head of the hold queue
 	    case find_source_message(Source,MsgId, NewAckList) of
 		found ->
 		    loop(Socket, ServerState);
@@ -112,7 +115,7 @@ loop(Socket, ServerState) ->
 	    end,
 	    loop(Socket, ServerState#server_state{acklist=NewAckList});
 
-	{lockRequest, SomeThing} ->
+	{lockRequest, _SomeThing} ->
 	    nothing;
 
 	{add, HostConfig} ->
