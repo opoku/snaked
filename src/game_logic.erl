@@ -26,36 +26,108 @@
 %% position is best described in the following way:
 %%% position of head (x,y), length
 
-start() ->
-    Snake1 = #snake{id=one, direction=up},
-    game_loop(#game_state{snakes=[Snake1]}).
+start(Id) ->
+    spawn(?MODULE, game_loop, [#game_state{snakes=gen_snakes(), myid = Id}]).
+
+gen_snakes() ->
+    Pos1 = in({10,10}, queue:new()),
+    Pos2 = in({15,15}, queue:new()),
+    Snake1 = #snake{id=one, direction=up, position=Pos1},
+    Snake2 = #snake{id=two, direction=left, position=Pos2},
+    [Snake1, Snake2].
+
+debug() ->
+    game_logic ! {self(), get_state},
+    receive
+	Any ->
+	    Any
+    end.
 
 game_loop(GameState) ->
-    game_loop(GameState, queue:new()).
+    register(game_logic, self()),
+    #game_state{snakes=Snakes} = GameState,
+    %% there is a queue for each snake
+    ReceivedMoveQueue = [{SnakeId, queue:new()} || #snake{id=SnakeId} <- Snakes],
+    game_loop(GameState, ReceivedMoveQueue).
 
-game_loop (GameState, QueuedMoves) ->
-    #game_state{clock=Clock} = GameState,
+
+game_loop (GameState, ReceivedMoveQueue) ->
+    #game_state{clock=Clock, myid = MyId} = GameState,
     receive
 	{print_state} ->
-	    io:format("Clock: ~p~nGameState: ~p~nQueuedMoves: ~p~n", [Clock, GameState, QueuedMoves]),
-	    game_loop(GameState, QueuedMoves);
+	    io:format("Clock: ~p~nGameState: ~p~nReceivedMoveQueue: ~p~n", [Clock, GameState, ReceivedMoveQueue]),
+	    game_loop(GameState, ReceivedMoveQueue);
+	{Pid, get_state} ->
+	    Pid ! {GameState, ReceivedMoveQueue},
+	    game_loop(GameState, ReceivedMoveQueue);
+	{become, Mod, Func} ->
+	    io:format("Becoming ~p:~p~n", [Mod, Func]),
+	    apply(Mod, Func, [GameState, ReceivedMoveQueue]);
+	{die} ->
+	    io:format("Dying~n");
 	{tick, NewClock} ->
 	    case Clock + 1 =:= NewClock of
 		true ->
-		    %% update the gui
-		    GameState1 = move_snakes(GameState),
-		    {GameState2, Results} = evaluate_snakes(GameState1), %% results is basically some messages saying what happened as a result of evaluation
-		    GameState3 = advance_clock(GameState2),
-		    display_board(GameState3, Results),
-		    {GameState4, NewQueue} = process_queued_moves(GameState3, QueuedMoves),
-		    game_loop(GameState4, NewQueue);
+		    _MoveEvents = receive_all_events(MyId),
+		    %% always broadcast the events even if the movelist is empty
+		    %%message_passer:broadcast_events(MoveEvents),
+
+		    {NewGameState, NewReceivedMoveQueue} = advance_game(GameState, ReceivedMoveQueue),
+		    game_loop(NewGameState, NewReceivedMoveQueue);
+
 		false -> % ignore other 
-		    nothing
+		    game_loop(GameState, ReceivedMoveQueue)
 	    end;
-	{move, _SnakeId, _Direction, Clock} = Move ->
-	    {NewGameState, NewQueuedMoves} = process_move(Move, GameState, QueuedMoves),
-	    game_loop(NewGameState, NewQueuedMoves)
+	{move, SnakeId, MoveList} ->
+	    %% put this move into the queue for snakeid
+	    {SnakeId, Queue} = lists:keyfind(SnakeId, 1, ReceivedMoveQueue),
+	    NewQueue = process_move_list(MoveList, Queue),
+	    NewReceivedMoveQueue = lists:keystore(SnakeId, 1, ReceivedMoveQueue, {SnakeId, NewQueue}),
+	    game_loop(GameState, NewReceivedMoveQueue)
     end.
+
+
+%% we havent received the gui events until now. now we just receive all of them an put
+%% them in a list in the order they were sent.
+receive_all_events(Id) ->
+    receive_all_events(Id, []).
+
+receive_all_events(Id, MoveList) ->
+    receive
+	{event, Direction} ->
+	    receive_all_events(Id, [Direction | MoveList])
+    after
+	0 ->
+	    {move, Id, lists:reverse(MoveList)}
+    end.
+
+%% returns {NewGameState, NewMoveQueue}
+advance_game(GameState, MoveQueue) ->
+    {GameState1, MoveQueue1} = move_snakes(GameState,MoveQueue),
+
+    %% Results is basically some messages saying what happened as a result of evaluation
+    {GameState2, Results} = evaluate_snakes(GameState1),
+    NewMoveQueue = update_move_queue(Results, MoveQueue1),
+    NewGameState = advance_clock(GameState2),
+    
+    %% update the gui
+    display_board(NewGameState, Results),
+    {NewGameState, NewMoveQueue}.
+
+update_move_queue([{killed, SnakeId} | Results], MoveQueue) ->
+    NewMoveQueue = lists:keydelete(SnakeId, 1, MoveQueue),
+    update_move_queue(Results, NewMoveQueue);
+update_move_queue([{_Other, _Id} | Results], MoveQueue) ->
+    update_move_queue(Results, MoveQueue);
+update_move_queue([], MoveQueue) ->
+    MoveQueue.
+
+process_move_list([Direction | OtherMoveList], MoveQueue) ->
+    %% put this move into the queue for snakeid
+    NewQueue = in(Direction, MoveQueue),
+    process_move_list(OtherMoveList, NewQueue);
+process_move_list([], MoveQueue) ->
+    MoveQueue.
 
 advance_clock(GS) ->
     advance_clock(GS, 1).
@@ -66,6 +138,7 @@ advance_clock(#game_state{clock=Clock} = GS, Steps) ->
 
 evaluate_snakes(GS) ->
     %% returns {NewGameState, Results}  where results is the deaths or foods obtained
+    %% determine which snakes are dead and which snakes are able to eat any food
     {GS1, Results1} = evaluate_obstacles(GS),
     {GS2, Results2} = evaluate_food(GS1),
     {GS2, Results1 ++ Results2}.
@@ -76,15 +149,20 @@ find_point_in_point_list(Point, PointList) ->
 
 detect_collision(Snake, ObstacleMap) ->
     %% true or false
-    #snake{position=SnakePos} = Snake,
-    dict:is_key(front(SnakePos), ObstacleMap).
+    #snake{id=SnakeId, position=SnakePos} = Snake,
+    case dict:find(front(SnakePos), ObstacleMap) of
+	{ok, [SnakeId]} ->
+	    false;
+	_Any ->
+	    true
+    end.
 
 evaluate_obstacles(GS) ->
     %% returns {GS1, Results}
     #game_state{snakes=Snakes, obstacles=Obs} = GS,
     ObstacleMap = build_obstacle_map(Snakes ++ Obs),
     {DeadSnakes, AliveSnakes} = lists:partition(fun(Snake) -> detect_collision(Snake, ObstacleMap) end, Snakes),
-    Results = map(fun(S) -> {killed, S#snake.id} end, DeadSnakes),
+    Results = [{killed, S#snake.id}|| S <- DeadSnakes],
     {GS#game_state{snakes=AliveSnakes}, Results}.
 
 evaluate_food(GS) ->
@@ -144,34 +222,6 @@ evaluate_food([Snake| OtherSnakes], Foods, NewSnakes, Results) ->
 evaluate_food([], Foods, NewSnakes, Results) ->
     {NewSnakes, Foods, Results}.
 	    
-
-process_move(Move, GameState, QueuedMoves) ->
-    %% evaluate only the first move, queue the rest
-    {move, SnakeId, Direction, Clock} = Move,
-    #game_state{snakes=Snakes} = GameState,
-    {ok, {S, OtherSnakes}} = find_snake(SnakeId, Snakes),
-    case update_snake_direction(Direction, S) of 
-	{ok, ChangedSnake} ->
-	    NewGameState = GameState#game_state{snakes=[ChangedSnake | OtherSnakes]},
-	    {NewGameState, QueuedMoves};
-	{ignored, _S} ->
-	    NewQueue = queue:in({move, SnakeId, Direction, Clock + 1}, QueuedMoves),
-	    {GameState, NewQueue}
-    end.
-
-
-process_queued_moves(GameState, QueuedMoves) ->
-    process_queued_moves(GameState, QueuedMoves, queue:new()).
-
-process_queued_moves(GameState, QueuedMoves, OutQueue) ->
-    case out(QueuedMoves) of
-	{{value, Move}, Q2} ->
-	    {NewGameState, NewQueuedMoves} = process_move(Move, GameState, OutQueue),
-	    process_queued_moves(NewGameState, Q2, NewQueuedMoves);
-	{empty, QueuedMoves} ->
-	    {GameState, OutQueue}
-    end.
-
 find_snake(SnakeId, Snakes) ->
     find_snake(SnakeId, Snakes, []).
 
@@ -182,18 +232,29 @@ find_snake(SnakeId, [H| T], L) ->
 find_snake(_, [], L) ->
     {not_found, L}.
 
-update_snake_direction(Direction, #snake{changed=false} = Snake) ->
-    {ok, Snake#snake{direction=Direction, changed=true}};
-update_snake_direction(_, Snake) ->
-    {ignored, Snake}.
+move_snakes(#game_state{snakes=Snakes} = GS, MoveQueue) ->
+    {NewSnakes, NewMoveQueue} = move_snakes(Snakes, MoveQueue, []),
+    {GS#game_state{snakes=NewSnakes}, NewMoveQueue}.
 
-move_snakes(#game_state{snakes=Snakes} = GS) ->
-    GS#game_state{snakes=map(Snakes, fun move_snake/1)}.
+move_snakes([#snake{id=SnakeId, direction=D} = Snake | OtherSnakes], MoveQueue, DoneSnakes) ->
+    {SnakeId, Queue} = lists:keyfind(SnakeId, 1, MoveQueue),
+    case out(Queue) of
+	{{value, Dir}, NewQueue} ->
+	    NewSnake = move_snake(Snake, Dir),
+	    NewMoveQueue = lists:keystore(SnakeId, 1, MoveQueue, {SnakeId, NewQueue}),
+	    move_snakes(OtherSnakes, NewMoveQueue, [NewSnake| DoneSnakes]);
+	{empty, Queue} ->
+	    NewSnake = move_snake(Snake, D),
+	    move_snakes(OtherSnakes, MoveQueue, [NewSnake | DoneSnakes])
+    end;
 
-move_snake(#snake{position=Q, direction=D, length=L} = Snake) ->
+move_snakes([], MoveQueue, DoneSnakes) ->
+    {DoneSnakes, MoveQueue}.
+
+move_snake(#snake{position=Q, length=L} = Snake, D) ->
     Fun = move_snake_function(D),
     Q1 = add_to_front(Fun(front(Q)), Q),
-    Snake#snake{position=resize_snake_position(Q1, L), changed = false}.
+    Snake#snake{position=resize_snake_position(Q1, L), direction=D}.
 
 resize_snake_position(Q, Length) ->
     resize_snake_position(Q, queue:len(Q), Length).
@@ -204,8 +265,8 @@ resize_snake_position(Q, QL, L) when QL > L ->
 resize_snake_position(Q, _QL, _L) -> Q.
     
 
-display_board(_,_) ->
-    done.
+display_board(GameState,Results) ->
+    io:format("GS:~p~n Results:~p~n", [GameState, Results]).
 
 front(Q1) ->
     queue:get(Q1).
