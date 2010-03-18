@@ -86,7 +86,7 @@ game_loop (GameState, ReceivedMoveQueue) ->
 	    game_loop(GameState, NewReceivedMoveQueue)
     end.
 
-%% we havent received the gui events until now. now we just receive all of them an put
+%% we haven't received the gui events until now. now we just receive all of them an put
 %% them in a list in the order they were sent.
 receive_all_events(Id) ->
     receive_all_events(Id, []).
