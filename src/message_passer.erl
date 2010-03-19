@@ -13,7 +13,8 @@
 -record(server_state, {host_list, msgid = 0, acklist = [], myid, hold_queue=queue:new()}).
 
 start(Port, HostList, MyId) ->
-    spawn(fun() -> server(Port, HostList, MyId) end).
+    spawn(fun() -> server(Port, HostList, MyId) end),
+	ok.
 
 server(Port, HostList, MyId) ->
     {ok, Socket} = gen_udp:open(Port, [binary]),
@@ -46,11 +47,11 @@ find_id(_, []) -> not_found.
 %% game_logic
 route_message(Msg, HostId) ->
     io:format("Route Message ~p from ~p~n", [Msg, HostId]),
-    case element(1, Msg) of
-%% 	game_logic ->
-%% 	    game_logic ! Msg;
-%% 	game_manager ->
-%% 	    game_manager ! Msg;
+    case Msg of
+ 	{game_logic, Body} ->
+ 	    game_logic ! Body;
+ 	{game_manager, Body} ->
+ 	    game_manager ! Body;
 	_ ->
 	    message_passer ! Msg
     end.
@@ -58,6 +59,10 @@ route_message(Msg, HostId) ->
 route_message(Msg, Host, Port, HostList) ->
     {ok , {Id, Host, Port}} = find_id({Host, Port}, HostList),
     route_message(Msg, Id).
+
+%send a broadcast message
+broadcast(Msg) ->
+	message_passer ! {broadcast, Msg}.
 
 loop(Socket, ServerState) ->
     HostList = ServerState#server_state.host_list,
@@ -106,13 +111,13 @@ loop(Socket, ServerState) ->
 	    NewAckList = AckList -- Ack,
 	    %% if newacklist is empty
 	    %% BUGGGG: fix a bug here with getting the message from the head of the hold queue
-	    case find_source_message(Source,MsgId, NewAckList) of
-		found ->
-		    loop(Socket, ServerState);
-		notfound ->
+	    %case find_source_message(Source,MsgId, NewAckList) of
+		%found ->
+		%    loop(Socket, ServerState);
+		%notfound ->
 		    %% process the message
-		    route_message(Source, Msg)
-	    end,
+		%    route_message(Source, Msg)
+	    %end,
 	    loop(Socket, ServerState#server_state{acklist=NewAckList});
 
 	{lockRequest, _SomeThing} ->

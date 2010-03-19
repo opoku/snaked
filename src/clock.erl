@@ -27,14 +27,18 @@ stop() ->
 	    ok
     end.
 
-
 loop(Time) ->
+	loop(Time, 0).
+
+loop(Time, Tick) ->
     receive
 	{Pid, stop} ->
 	    Pid ! ok,
 	    io:format("Game Clock stopping~n")
     after Time ->
-	    game_manager:broadcast_tick(),
-	    loop(Time)
+	    game_manager:broadcast_tick(Tick),
+	    loop(Time, Tick+1)
     end.
+
+
 
