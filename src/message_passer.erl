@@ -16,6 +16,9 @@ start(Port, HostList, MyId) ->
     spawn(fun() -> server(Port, HostList, MyId) end),
 	ok.
 
+stop() ->
+	message_passer ! {die}.
+
 server(Port, HostList, MyId) ->
     {ok, Socket} = gen_udp:open(Port, [binary]),
     register(message_passer, self()),
@@ -136,8 +139,11 @@ loop(Socket, ServerState) ->
 	{become, NewLoop} ->
 	    io:format("Running a new loop function ~p~n", [NewLoop]),
 	    NewLoop(Socket, ServerState);
+	{die} ->
+		io:format("message_passer closing...~n");
 	Any ->
-	    io:format("Ignoring unmatched message ~p~n", [Any])
+	    io:format("Ignoring unmatched message ~p~n", [Any]),
+		loop(Socket, ServerState)
     end.
 
 %% Sender: {multicast, Msg} to messagepasser

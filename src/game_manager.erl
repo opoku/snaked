@@ -31,5 +31,8 @@ join_game() ->
 broadcast_tick(Tick) ->
     message_passer:broadcast({game_logic, {tick, Tick}}).
 
-
+stop() ->
+	clock:stop(),
+	game_logic:stop(),
+	message_passer:stop().
 

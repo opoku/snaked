@@ -48,6 +48,9 @@
 start(Id) ->
     spawn(?MODULE, game_loop, [#game_state{snakes=gen_snakes(), myid = Id}]).
 
+stop() ->
+	game_logic ! {die}.
+
 gen_snakes() ->
     Pos1 = in({10,10}, queue:new()),
     Pos2 = in({15,15}, queue:new()),
@@ -129,13 +132,10 @@ receive_all_events(Id, MoveList) ->
 
 %% returns {NewGameState, NewMoveQueue}
 advance_game(GameState, MoveQueue) ->
-    %{GameState1, MoveQueue1} = move_snakes(GameState,MoveQueue),
+    {GameState1, MoveQueue1} = move_snakes(GameState,MoveQueue),
 
     %% Results is basically some messages saying what happened as a result of evaluation
-    %{GameState2, Results} = evaluate_snakes(GameState1),
-    GameState2 = GameState,
-    MoveQueue1 = MoveQueue,
-    Results = [],
+    {GameState2, Results} = evaluate_snakes(GameState1),
     NewMoveQueue = update_move_queue(Results, MoveQueue1),
     NewGameState = advance_clock(GameState2),
     

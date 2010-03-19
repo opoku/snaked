@@ -30,6 +30,9 @@ stop() ->
 loop(Time) ->
 	loop(Time, 0).
 
+loop(_, 5) ->
+	done;
+
 loop(Time, Tick) ->
     receive
 	{Pid, stop} ->
