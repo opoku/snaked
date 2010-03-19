@@ -129,10 +129,13 @@ receive_all_events(Id, MoveList) ->
 
 %% returns {NewGameState, NewMoveQueue}
 advance_game(GameState, MoveQueue) ->
-    {GameState1, MoveQueue1} = move_snakes(GameState,MoveQueue),
+    %{GameState1, MoveQueue1} = move_snakes(GameState,MoveQueue),
 
     %% Results is basically some messages saying what happened as a result of evaluation
-    {GameState2, Results} = evaluate_snakes(GameState1),
+    %{GameState2, Results} = evaluate_snakes(GameState1),
+    GameState2 = GameState,
+    MoveQueue1 = MoveQueue,
+    Results = [],
     NewMoveQueue = update_move_queue(Results, MoveQueue1),
     NewGameState = advance_clock(GameState2),
     

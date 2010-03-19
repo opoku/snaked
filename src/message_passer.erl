@@ -19,7 +19,8 @@ start(Port, HostList, MyId) ->
 server(Port, HostList, MyId) ->
     {ok, Socket} = gen_udp:open(Port, [binary]),
     register(message_passer, self()),
-    HostList1 = [{Id, hostname_to_ip(Host), Port1} || {Id, Host, Port1} <- HostList],
+    HostList_tmp = [{MyId, "localhost", Port} | HostList],
+    HostList1 = [{Id, hostname_to_ip(Host), Port1} || {Id, Host, Port1} <- HostList_tmp],
     ServerState = #server_state{host_list=HostList1, myid=MyId},
     loop(Socket, ServerState).
 
