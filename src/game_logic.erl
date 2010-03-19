@@ -1,4 +1,23 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Name: game_logic.erl
+%%% Author: ROAM DS Group for 2010 18-842 (DS) Class
+%%%         Rama (rbupath)
+%%%         Aditi (apandya)
+%%%         Osei Poku (opoku)
+%%%         Manan Patel (mdpatel)
+%%%
+%%% Date: Spring 2010
+%%%
+%%% Project Description: This project implements a distributed snake game
+%%%
+%%% Description: This module implements the game logic of the game.  This involves
+%%% evaluating the state of the snakes.  Specifically, the snakes need to move and when
+%%% they do, it needs to be determined whether they are still alive or dead.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 -module(game_logic).
+-export([start/1, send_event/1]).
+
 -compile([export_all]).
 
 -import(queue, [out/1, out_r/1, in/2, in_r/2]).
@@ -42,6 +61,14 @@ debug() ->
 	Any ->
 	    Any
     end.
+
+%%% 
+%% possible values for direction are the atoms [up, down, left, right]
+%% returns the atom ok
+%%%
+send_event(Direction) ->
+    game_logic ! {event, Direction},
+    ok.
 
 game_loop(GameState) ->
     register(game_logic, self()),
