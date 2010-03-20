@@ -28,7 +28,7 @@ stop() ->
     end.
 
 loop(Time) ->
-	loop(Time, 0).
+	loop(Time, 1).
 
 loop(_, 10) ->
 	done;
@@ -41,7 +41,7 @@ loop(Time, Tick) ->
 	{forcetick} ->
 	    game_manager:broadcast_tick(Tick),
 	    loop(Time, Tick+1)
-    after infinity ->
+    after Time ->
 	    game_manager:broadcast_tick(Tick),
 	    loop(Time, Tick+1)
     end.

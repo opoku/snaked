@@ -4,20 +4,20 @@
 
 
 start(Coords)->
-    spawn(snake_ui, start_gui, [Coords]).
+    Pid = spawn_link(snake_ui, start_gui, [Coords]),
+    register(snake_ui, Pid).
 
 stop() ->
     snake_ui ! {die}.
 
 start_gui({X,Y}) ->
-    register(snake_ui, self()),
     S = gs:start(),
     Win = gs:create(window,S,[{width,1000},{height,1000},{buttonpress,true},{keypress,true}]),
     Can = gs:create(canvas,Win,[{width, (X * 100)},{height, (Y * 100)},{bg,white},{keypress,true}]),
     Snakes_List = [],
     Line = gs:create(line,Can,[{coords,[{100,100},{100,110}]},{arrow,none},{width,5}]),
     gs:config(Win,{map,true}),
-    display_board([#object{type = obstacle,position = [{25,25},{30,30}] , value = 20}, #object{type = obstacle,position = [{100,100},{105,105}], value = 10}],Can),
+    %%display_board([#object{type = obstacle,position = [{25,25},{30,30}] , value = 20}, #object{type = obstacle,position = [{100,100},{105,105}], value = 10}],Can),
     Food_List = [],
     Obstacle_List = [],
     %%dont_end().
@@ -69,11 +69,12 @@ display(#game_state{snakes = Snakes, obstacles = Obstacles, foods = Food, size =
     %% Results is a list contains tuples like
     %% {killed, SnakeId} | {eaten, }
 
-    io:format("GameState: ~p~n", GameState),
+    io:format("GameState: ~p~n", [GameState]),
 
     snake_ui ! {display_obstacles, Obstacles},
     snake_ui ! {display_food, Food},
-    snake_ui ! {display_snakes, Snakes}.
+    snake_ui ! {display_snakes, Snakes},
+    done.
 
 
 add_snake(Id, Coords, Can, Snakes_List) ->
@@ -93,7 +94,7 @@ object_disappear(List)->
 
 
 display_board(List, Can)->
-    io:format("displlay board called~n",[]),
+    io:format("display board called~n",[]),
     lists:map(fun(X) -> obstacles(X,Can) end, List).
 
 

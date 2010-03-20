@@ -46,11 +46,24 @@
 %%% position of head (x,y), length
 
 start(Id) ->
-    spawn_link(game_logic, game_loop, [#game_state{snakes=gen_snakes(), myid = Id}]).
+    Pid = spawn(game_logic, init, [Id]),
+    register(game_logic, Pid).
 
 stop() ->
-    catch(snake_ui:stop()),
+    (catch snake_ui:stop()),
     game_logic ! {die}.
+
+init(Id) ->
+    io:format("Registered ~p as game_logic~n", [self()]),
+
+    GameState = #game_state{snakes=gen_snakes(), myid = Id},
+    process_flag(trap_exit, true),
+    snake_ui:start({8,8}),
+    #game_state{snakes=Snakes} = GameState,
+    %% there is a queue for each snake
+    ReceivedMoveQueue = [{SnakeId, queue:new()} || #snake{id=SnakeId} <- Snakes],
+    game_loop(GameState, ReceivedMoveQueue).
+
 
 gen_snakes() ->
     Pos1 = in({10,10}, queue:new()),
@@ -74,22 +87,13 @@ send_event(Direction) ->
     game_logic ! {event, Direction},
     ok.
 
-game_loop(GameState) ->
-    io:format("Registered ~p as game_logic~n", [self()]),
-    register(game_logic, self()),
-
-    snake_ui:start({8,8}),
-
-    #game_state{snakes=Snakes} = GameState,
-    %% there is a queue for each snake
-    ReceivedMoveQueue = [{SnakeId, queue:new()} || #snake{id=SnakeId} <- Snakes],
-    game_loop(GameState, ReceivedMoveQueue).
-
-
 game_loop (GameState, ReceivedMoveQueue) ->
     io:format("starting game_loop~n"),
     #game_state{clock=Clock, myid = MyId} = GameState,
     receive
+	{'EXIT', Pid, Reason} ->
+	    io:format("Pid ~p exited for reason ~p~n", [Pid, Reason]),
+	    game_loop(GameState, ReceivedMoveQueue);
 	{print_state} ->
 	    io:format("Clock: ~p~nGameState: ~p~nReceivedMoveQueue: ~p~n", [Clock, GameState, ReceivedMoveQueue]),
 	    game_loop(GameState, ReceivedMoveQueue);
@@ -101,19 +105,22 @@ game_loop (GameState, ReceivedMoveQueue) ->
 	    io:format("Becoming ~p:~p~n", [Mod, Func]),
 	    apply(Mod, Func, [GameState, ReceivedMoveQueue]);
 	{die} ->
-	    io:format("Dying~n");
+	    io:format("Game Logic Dying~n");
 	{tick, NewClock} ->
-	    io:format ("Received tick for clock ~p~n", NewClock),
+	    io:format ("Received tick for clock ~p old Clock ~p~n", [NewClock, Clock]),
 	    case Clock + 1 =:= NewClock of
 		true ->
+		    io:format ("Advancing Clock~n"),
 		    _MoveEvents = receive_all_events(MyId),
 		    %% always broadcast the events even if the movelist is empty
 		    %%message_passer:broadcast_events(MoveEvents),
 
+		    io:format ("Done Receiveing events~n"),
 		    {NewGameState, NewReceivedMoveQueue} = advance_game(GameState, ReceivedMoveQueue),
+		    io:format ("Looping~n"),
 		    game_loop(NewGameState, NewReceivedMoveQueue);
 
-		false -> % ignore other 
+		_Any -> % ignore other 
 		    game_loop(GameState, ReceivedMoveQueue)
 	    end;
 	{move, SnakeId, MoveList} ->
@@ -126,7 +133,6 @@ game_loop (GameState, ReceivedMoveQueue) ->
 	Default ->
 	    io:format("What are you doing!!!! ~p~n", [Default]),
 	    game_loop(GameState, ReceivedMoveQueue)
-		
     end.
 
 %% we haven't received the gui events until now. now we just receive all of them an put
@@ -145,6 +151,7 @@ receive_all_events(Id, MoveList) ->
 
 %% returns {NewGameState, NewMoveQueue}
 advance_game(GameState, MoveQueue) ->
+    io:format ("Inside advance game~n"),
     {GameState1, MoveQueue1} = move_snakes(GameState,MoveQueue),
 
     %% Results is basically some messages saying what happened as a result of evaluation
@@ -154,6 +161,7 @@ advance_game(GameState, MoveQueue) ->
     
     %% update the gui
     snake_ui:display(NewGameState, Results),
+    io:format ("Done updating display~n"),
     {NewGameState, NewMoveQueue}.
 
 update_move_queue([{killed, SnakeId} | Results], MoveQueue) ->
