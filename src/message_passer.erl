@@ -53,6 +53,7 @@ route_message(Msg, HostId) ->
     io:format("Route Message ~p from ~p~n", [Msg, HostId]),
     case Msg of
  	{game_logic, Body} ->
+	    io:format("matched game_logic so forwarding ~p~n", [Body]),
  	    game_logic ! Body;
  	{game_manager, Body} ->
  	    game_manager ! Body;

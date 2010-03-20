@@ -11,7 +11,7 @@
 
 
 start() ->
-    start(200).
+    start(2000).
 
 start(TimeOut) ->
     spawn(clock, init, [TimeOut]).
@@ -30,15 +30,18 @@ stop() ->
 loop(Time) ->
 	loop(Time, 0).
 
-loop(_, 5) ->
+loop(_, 10) ->
 	done;
 
 loop(Time, Tick) ->
     receive
 	{Pid, stop} ->
 	    Pid ! ok,
-	    io:format("Game Clock stopping~n")
-    after Time ->
+	    io:format("Game Clock stopping~n");
+	{forcetick} ->
+	    game_manager:broadcast_tick(Tick),
+	    loop(Time, Tick+1)
+    after infinity ->
 	    game_manager:broadcast_tick(Tick),
 	    loop(Time, Tick+1)
     end.

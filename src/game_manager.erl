@@ -6,7 +6,7 @@ start() ->
 
 init() ->
 
-    MyId = temp,
+    MyId = one,
     DefaultPort = 5555,
     %%Invoke message passer.
     ok = message_passer:start(DefaultPort, [], MyId),
@@ -32,7 +32,7 @@ broadcast_tick(Tick) ->
     message_passer:broadcast({game_logic, {tick, Tick}}).
 
 stop() ->
-	clock:stop(),
-	game_logic:stop(),
-	message_passer:stop().
+    catch (clock:stop()),
+    catch (game_logic:stop()),
+    catch (message_passer:stop()).
 

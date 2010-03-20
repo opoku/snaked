@@ -46,16 +46,17 @@
 %%% position of head (x,y), length
 
 start(Id) ->
-    spawn(?MODULE, game_loop, [#game_state{snakes=gen_snakes(), myid = Id}]).
+    spawn_link(game_logic, game_loop, [#game_state{snakes=gen_snakes(), myid = Id}]).
 
 stop() ->
-	game_logic ! {die}.
+    catch(snake_ui:stop()),
+    game_logic ! {die}.
 
 gen_snakes() ->
     Pos1 = in({10,10}, queue:new()),
     Pos2 = in({15,15}, queue:new()),
-    Snake1 = #snake{id=one, direction=up, position=Pos1},
-    Snake2 = #snake{id=two, direction=left, position=Pos2},
+    Snake1 = #snake{id=one, direction='Up', position=Pos1},
+    Snake2 = #snake{id=two, direction='Left', position=Pos2},
     [Snake1, Snake2].
 
 debug() ->
@@ -74,7 +75,11 @@ send_event(Direction) ->
     ok.
 
 game_loop(GameState) ->
+    io:format("Registered ~p as game_logic~n", [self()]),
     register(game_logic, self()),
+
+    snake_ui:start({8,8}),
+
     #game_state{snakes=Snakes} = GameState,
     %% there is a queue for each snake
     ReceivedMoveQueue = [{SnakeId, queue:new()} || #snake{id=SnakeId} <- Snakes],
@@ -82,12 +87,14 @@ game_loop(GameState) ->
 
 
 game_loop (GameState, ReceivedMoveQueue) ->
+    io:format("starting game_loop~n"),
     #game_state{clock=Clock, myid = MyId} = GameState,
     receive
 	{print_state} ->
 	    io:format("Clock: ~p~nGameState: ~p~nReceivedMoveQueue: ~p~n", [Clock, GameState, ReceivedMoveQueue]),
 	    game_loop(GameState, ReceivedMoveQueue);
 	{Pid, get_state} ->
+	    io:format("Getstate~n"),
 	    Pid ! {GameState, ReceivedMoveQueue},
 	    game_loop(GameState, ReceivedMoveQueue);
 	{become, Mod, Func} ->
@@ -96,6 +103,7 @@ game_loop (GameState, ReceivedMoveQueue) ->
 	{die} ->
 	    io:format("Dying~n");
 	{tick, NewClock} ->
+	    io:format ("Received tick for clock ~p~n", NewClock),
 	    case Clock + 1 =:= NewClock of
 		true ->
 		    _MoveEvents = receive_all_events(MyId),
@@ -110,10 +118,15 @@ game_loop (GameState, ReceivedMoveQueue) ->
 	    end;
 	{move, SnakeId, MoveList} ->
 	    %% put this move into the queue for snakeid
+	    io:format("Move Called~n"),
 	    {SnakeId, Queue} = lists:keyfind(SnakeId, 1, ReceivedMoveQueue),
 	    NewQueue = process_move_list(MoveList, Queue),
 	    NewReceivedMoveQueue = lists:keystore(SnakeId, 1, ReceivedMoveQueue, {SnakeId, NewQueue}),
-	    game_loop(GameState, NewReceivedMoveQueue)
+	    game_loop(GameState, NewReceivedMoveQueue);
+	Default ->
+	    io:format("What are you doing!!!! ~p~n", [Default]),
+	    game_loop(GameState, ReceivedMoveQueue)
+		
     end.
 
 %% we haven't received the gui events until now. now we just receive all of them an put
@@ -140,7 +153,7 @@ advance_game(GameState, MoveQueue) ->
     NewGameState = advance_clock(GameState2),
     
     %% update the gui
-    display_board(NewGameState, Results),
+    snake_ui:display(NewGameState, Results),
     {NewGameState, NewMoveQueue}.
 
 update_move_queue([{killed, SnakeId} | Results], MoveQueue) ->
@@ -294,8 +307,8 @@ resize_snake_position(Q, QL, L) when QL > L ->
 resize_snake_position(Q, _QL, _L) -> Q.
     
 
-display_board(GameState,Results) ->
-    io:format("GS:~p~n Results:~p~n", [GameState, Results]).
+%% display_board(GameState,Results) ->
+%%     io:format("GS:~p~n Results:~p~n", [GameState, Results]).
 
 front(Q1) ->
     queue:get(Q1).
@@ -307,19 +320,19 @@ remove_from_back(Q1) ->
     {_, Q2} = out_r(Q1),
     Q2.
 
-move_snake_function(up) ->
+move_snake_function('Up') ->
     fun ({X,Y}) ->
 	    {X, Y+1}
     end;
-move_snake_function(down) ->
+move_snake_function('Down') ->
     fun ({X,Y}) ->
 	    {X, Y-1}
     end;
-move_snake_function(left) ->
+move_snake_function('Left') ->
     fun ({X,Y}) ->
 	    {X-1, Y}
     end;
-move_snake_function(right) ->
+move_snake_function('Right') ->
     fun ({X,Y}) ->
 	    {X+1, Y}
     end.
