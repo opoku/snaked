@@ -77,6 +77,11 @@ gen_snakes() ->
 %%    Snake2 = #snake{id=two, direction='Left', position=PosB3, length = 3},
     [Snake1].
 
+gen_border_list (Size) ->
+    
+%%     {X, Y} = Size,
+%%     [{A,B} || A <- lists:seq(0,X-1), B <- lists:seq(0,Y-1), (A =:= 0 ; A =:= X-1)].
+
 debug() ->
     game_logic ! {self(), get_state},
     receive
