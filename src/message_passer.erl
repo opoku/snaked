@@ -14,13 +14,18 @@
 %-record(lock_state, {released, held, wanted}).
 
 start(Port, HostList, MyId) ->
-    spawn(fun() -> server(Port, HostList, MyId) end).
+    spawn(fun() -> server(Port, HostList, MyId) end),
+	ok.
+
+stop() ->
+	message_passer ! {die}.
 
 server(Port, HostList, MyId) ->
     {ok, Socket} = gen_udp:open(Port, [binary]),
     register(message_passer, self()),
-    HostList1 = [{Id, hostname_to_ip(Host), Port1} || {Id, Host, Port1} <- HostList],
-    ServerState = #server_state{host_list=HostList1, myid=MyId, lock_state=released},
+    HostList_tmp = [{MyId, "localhost", Port} | HostList],
+    HostList1 = [{Id, hostname_to_ip(Host), Port1} || {Id, Host, Port1} <- HostList_tmp],
+    ServerState = #server_state{host_list=HostList1, myid=MyId},
     loop(Socket, ServerState).
 
 usend(Socket, Id, Msg, HostList) ->
@@ -47,11 +52,12 @@ find_id(_, []) -> not_found.
 %% game_logic
 route_message(Msg, HostId) ->
     io:format("Route Message ~p from ~p~n", [Msg, HostId]),
-    case element(1, Msg) of
-%% 	game_logic ->
-%% 	    game_logic ! Msg;
-%% 	game_manager ->
-%% 	    game_manager ! Msg;
+    case Msg of
+ 	{game_logic, Body} ->
+	    io:format("matched game_logic so forwarding ~p~n", [Body]),
+ 	    game_logic ! Body;
+ 	{game_manager, Body} ->
+ 	    game_manager ! Body;
 	_ ->
 	    message_passer ! Msg
     end.
@@ -60,9 +66,15 @@ route_message(Msg, Host, Port, HostList) ->
     {ok , {Id, Host, Port}} = find_id({Host, Port}, HostList),
     route_message(Msg, Id).
 
+
 get_lock(onResource) ->
 	message_passer ! {getLock, onResource}.    
 	
+
+%send a broadcast message
+broadcast(Msg) ->
+	message_passer ! {broadcast, Msg}.
+
 loop(Socket, ServerState) ->
     HostList = ServerState#server_state.host_list,
     MsgId = ServerState#server_state.msgid,
@@ -110,30 +122,32 @@ loop(Socket, ServerState) ->
 	    NewAckList = AckList -- Ack,
 	    %% if newacklist is empty
 	    %% BUGGGG: fix a bug here with getting the message from the head of the hold queue
-	    case find_source_message(Source,MsgId, NewAckList) of
-		found ->
-		    loop(Socket, ServerState);
-		notfound ->
+	    %case find_source_message(Source,MsgId, NewAckList) of
+		%found ->
+		%    loop(Socket, ServerState);
+		%notfound ->
 		    %% process the message
-		    route_message(Source, Msg)
-	    end,
+		%    route_message(Source, Msg)
+	    %end,
 	    loop(Socket, ServerState#server_state{acklist=NewAckList});
 	{getLock, _Something} ->
-		LockMessage = {lockRequest, _Something}; 
-		bsend(Socket, LockMessage, HostList);
+		LockMessage = {lockRequest, _Something},
+		bsend(Socket, LockMessage, HostList),
 		loop(Socket, ServerState);
 	{lockRequest, _SomeThing} ->
-		LockState = ServerState#server_state.lock_state;
+		LockState = ServerState#server_state.lock_state,
 		
 		case LockState of
 			released -> 
-				LockMessage = {lockReply,_Something};
-				bsend(Socket, LockMessage, HostList);
+				LockMessage = {lockReply,_Something},
+				bsend(Socket, LockMessage, HostList),
 				loop(Socket,ServerState);
 			held ->
 				loop(Socket,ServerState);
 			wanted ->
 				% compare timestamps
+				loop(Socket,ServerState)
+		end;
 			
 	{lockReply, _Something} ->
 		nothing;
@@ -150,8 +164,11 @@ loop(Socket, ServerState) ->
 	{become, NewLoop} ->
 	    io:format("Running a new loop function ~p~n", [NewLoop]),
 	    NewLoop(Socket, ServerState);
+	{die} ->
+		io:format("message_passer closing...~n");
 	Any ->
-	    io:format("Ignoring unmatched message ~p~n", [Any])
+	    io:format("Ignoring unmatched message ~p~n", [Any]),
+		loop(Socket, ServerState)
     end.
 
 %% Sender: {multicast, Msg} to messagepasser
