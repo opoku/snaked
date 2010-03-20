@@ -27,7 +27,7 @@
 	  obstacles = [],
 
 	  %% the size of the grid
-	  size = {160,160},
+	  size = {50,50},
 
 	  %% monotonically increasing clock
 	  clock = 0,
