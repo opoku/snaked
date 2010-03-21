@@ -54,6 +54,7 @@ stop() ->
     game_logic ! {die}.
 
 init(Id) ->
+	
     io:format("Registered ~p as game_logic~n", [self()]),
 
     GameState = #game_state{snakes=gen_snakes(), myid = Id},
@@ -214,13 +215,38 @@ detect_collision(Snake, ObstacleMap) ->
 	    true
     end.
 
+
+process_dead_snakes(DeadSnakes) ->
+	process_dead_snakes(DeadSnakes,[],[],[]).
+
+process_dead_snakes([DeadSnake | OtherDeadSnakes],DeadSnakes1,RegeneratedSnakes,Results)->
+	#snake{id=SnakeId, lives=SnakeLives} = DeadSnake,
+	case SnakeLives > 0 of
+		true ->
+			SnakeLivesLeft = SnakeLives - 1,
+			%TODO: use a better border generate function%
+			NewPosition = in({1,1},in({2,1},in({3,1},queue:new()))),
+			NewSnake = DeadSnake#snake{lives=SnakeLivesLeft,position=NewPosition,direction='Right'},
+			Results1 = [{regenerated,SnakeId} | Results],
+			RegeneratedSnakes1 = [NewSnake | RegeneratedSnakes],
+			process_dead_snakes(OtherDeadSnakes,DeadSnakes1,RegeneratedSnakes1,Results1);
+		false ->
+			Results1 = [{killed,SnakeId} | Results],
+			DeadSnakes2 = [DeadSnake | DeadSnakes1],
+			process_dead_snakes(OtherDeadSnakes,DeadSnakes2,RegeneratedSnakes,Results1)
+	end;
+
+process_dead_snakes([],DeadSnakes1,RegeneratedSnakes,Results)->
+	{DeadSnakes1,RegeneratedSnakes,Results}.
+
 evaluate_obstacles(GS) ->
     %% returns {GS1, Results}
     #game_state{snakes=Snakes, obstacles=Obs} = GS,
     ObstacleMap = build_obstacle_map(Snakes ++ Obs),
     {DeadSnakes, AliveSnakes} = lists:partition(fun(Snake) -> detect_collision(Snake, ObstacleMap) end, Snakes),
-    Results = [{killed, S#snake.id}|| S <- DeadSnakes],
-    {GS#game_state{snakes=AliveSnakes}, Results}.
+	{DeadSnakes1,RegeneratedSnakes,Results} = process_dead_snakes(DeadSnakes),
+	AliveSnakes1 = AliveSnakes ++ RegeneratedSnakes,
+    {GS#game_state{snakes=AliveSnakes1}, Results}.
 
 evaluate_food(GS) ->
     %% returns {GS1, Results}
@@ -252,11 +278,11 @@ feed_snake(Snake, Foods) ->
     feed_snake(Snake, Foods, []).
 
 feed_snake(Snake, [Food | OtherFoods], DoneFoods) ->
-    #snake{position=PosQueue, length=SnakeLength} = Snake,
+    #snake{position=PosQueue, length=SnakeLength, score=SnakeScore} = Snake,
     #object{position=FoodPos, value=FoodValue} = Food,
     case find_point_in_point_list(front(PosQueue), FoodPos) of
 	true ->
-	    {fed, {Snake#snake{length=SnakeLength + FoodValue}, DoneFoods ++ OtherFoods}};
+	    {fed, {Snake#snake{length=SnakeLength + FoodValue, score=SnakeScore+100}, DoneFoods ++ OtherFoods}};
 	false ->
 	    feed_snake(Snake, OtherFoods, [Food | DoneFoods])
     end;
