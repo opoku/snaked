@@ -9,6 +9,7 @@
 
 -export([start/0,start/1,init/1,stop/0]).
 
+-define(FOOD_GENERATION_INTERVAL, 10).
 
 start() ->
     start(200).
@@ -42,7 +43,14 @@ loop(Time, Tick) ->
 	    game_manager:broadcast_tick(Tick),
 	    loop(Time, Tick+1)
     after Time ->
-	    game_manager:broadcast_tick(Tick),
+        %% Generate food every FOOD_GENERATION_INTERVAL.
+        if
+            (Tick rem ?FOOD_GENERATION_INTERVAL =:= 0) ->
+                NewFood = food:get_new_foods(),
+                game_manager:broadcast_tick(Tick, NewFood);
+            (Tick rem ?FOOD_GENERATION_INTERVAL =/= 0) ->
+                game_manager:broadcast_tick(Tick, [])
+        end,
 	    loop(Time, Tick+1)
     end.
 

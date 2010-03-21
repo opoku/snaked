@@ -10,7 +10,8 @@
 
 % the game_logic and game_manager processes are registered processes
 
--record(server_state, {host_list, msgid = 0, acklist = [], myid, hold_queue=queue:new()}).
+-record(server_state, {host_list, msgid = 0, acklist = [], myid, hold_queue=queue:new(), lock_state, time_stamp = 0}).
+%-record(lock_state, {released, held, wanted}).
 
 start(Port, HostList, MyId) ->
     spawn(fun() -> server(Port, HostList, MyId) end),
@@ -29,14 +30,14 @@ server(Port, HostList, MyId) ->
 
 usend(Socket, Id, Msg, HostList) ->
     {ok, {Id, Host, Port}} = find_host(Id, HostList),
-    ok = gen_udp:send(Socket, Host, Port, Msg).
+    ok = gen_udp:send(Socket, Host, Port, term_to_binary(Msg)).
 
 hostname_to_ip(HostName) ->
     {ok, Ip} = inet:getaddr(HostName, inet),
     Ip.
     
 bsend(Socket, Msg, HostList) ->
-    lists:foreach(fun ({_, Host, Port}) -> gen_udp:send(Socket, Host, Port, Msg) end, HostList).
+    lists:foreach(fun ({_, Host, Port}) -> gen_udp:send(Socket, Host, Port, term_to_binary(Msg)) end, HostList).
 
 find_host(Id, [{Id, Host, Port} | _]) -> {ok, {Id, Host, Port}};
 find_host(Id, [ _ | HostList]) -> find_host(Id, HostList);
@@ -65,6 +66,11 @@ route_message(Msg, Host, Port, HostList) ->
     {ok , {Id, Host, Port}} = find_id({Host, Port}, HostList),
     route_message(Msg, Id).
 
+
+get_lock(onResource) ->
+	message_passer ! {getLock, onResource}.    
+	
+
 %send a broadcast message
 broadcast(Msg) ->
     message_passer ! {broadcast, Msg}.
@@ -79,18 +85,18 @@ loop(Socket, ServerState) ->
 	    loop(Socket, ServerState);
 	{unicast, Id, Msg} ->
 	    io:format("Sending unicast message to id ~p : ~p~n", [Id, Msg]),
-	    usend(Socket, Id, term_to_binary(Msg), HostList),
+	    usend(Socket, Id, Msg, HostList),
 	    loop(Socket, ServerState);
 	{broadcast, Msg} ->
 	    io:format("Sending broadcast message : ~p~n", [Msg]),
-	    bsend(Socket, term_to_binary(Msg), HostList),
+	    bsend(Socket, Msg, HostList),
 	    loop(Socket, ServerState);
 	{multicast, Msg} ->
 	    %% reliable multicast
 	    io:format("Sending multicast message : ~p~n", [Msg]),
 	    NewMsgId = MsgId + 1,
 	    McastMsg = {rmulti, ServerState#server_state.myid, NewMsgId, Msg},
-	    bsend(Socket, term_to_binary(McastMsg), HostList),
+	    bsend(Socket, McastMsg, HostList),
 	    loop(Socket, ServerState#server_state{msgid=NewMsgId});
 	{rmulti, HostId, MId, _Msg} = McastMsg ->
 	    %% On receive {rmulti, MsgId, Msg}:
@@ -103,7 +109,7 @@ loop(Socket, ServerState) ->
 	    AckList = [{ack,NodeId,HostId,MId} || {NodeId,_Ip,_Port} <- HostList ],
 
 	    %% send your acks
-	    bsend(Socket,term_to_binary({ack,Me,HostId,MsgId}),HostList),
+	    bsend(Socket,{ack,Me,HostId,MsgId},HostList),
 
 	    %% add to hold queue
 	    HQ = ServerState#server_state.hold_queue,
@@ -124,9 +130,27 @@ loop(Socket, ServerState) ->
 		%    route_message(Source, Msg)
 	    %end,
 	    loop(Socket, ServerState#server_state{acklist=NewAckList});
-
+	{getLock, _Something} ->
+		LockMessage = {lockRequest, _Something},
+		bsend(Socket, LockMessage, HostList),
+		loop(Socket, ServerState);
 	{lockRequest, _SomeThing} ->
-	    nothing;
+		LockState = ServerState#server_state.lock_state,
+		
+		case LockState of
+			released -> 
+				LockMessage = {lockReply,_Something},
+				bsend(Socket, LockMessage, HostList),
+				loop(Socket,ServerState);
+			held ->
+				loop(Socket,ServerState);
+			wanted ->
+				% compare timestamps
+				loop(Socket,ServerState)
+		end;
+			
+	{lockReply, _Something} ->
+		nothing;
 
 	{add, HostConfig} ->
 	    io:format("Adding ~p to HostList ~p~n", [HostConfig, HostList]),
@@ -164,7 +188,7 @@ loop(Socket, ServerState) ->
 
 
 %% lock() 
-% bcast lockrequest
+% bcast lockrequest ?? when to initiate this lock request??
 % wait for all lockreply
 % acquired the lock so return
 

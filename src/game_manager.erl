@@ -1,6 +1,8 @@
 -module(game_manager).
 -compile([export_all]).
 
+
+
 start() ->
     spawn(game_manager, init, []).
 
@@ -28,8 +30,8 @@ become_leader(MyId) ->
 join_game() ->
     fail.
 
-broadcast_tick(Tick) ->
-    message_passer:broadcast({game_logic, {tick, Tick}}).
+broadcast_tick(Tick, NewFood) ->
+    message_passer:broadcast({game_logic, {tick, Tick}, {new_food, NewFood}}).
 
 stop() ->
     catch (clock:stop()),
