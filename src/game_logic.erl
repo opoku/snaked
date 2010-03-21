@@ -57,9 +57,12 @@ init(Id) ->
     io:format("Registered ~p as game_logic~n", [self()]),
 
     GameState = #game_state{snakes=gen_snakes(), myid = Id},
-    process_flag(trap_exit, true),
-    snake_ui:start({8,8}),
+    %process_flag(trap_exit, true),
+    
+    snake_ui:start(GameState#game_state.size),
+    
     #game_state{snakes=Snakes} = GameState,
+
     %% there is a queue for each snake
     ReceivedMoveQueue = [{SnakeId, queue:new()} || #snake{id=SnakeId} <- Snakes],
     game_loop(GameState, ReceivedMoveQueue).
@@ -67,10 +70,20 @@ init(Id) ->
 
 gen_snakes() ->
     Pos1 = in({10,10}, queue:new()),
-    Pos2 = in({15,15}, queue:new()),
-    Snake1 = #snake{id=one, direction='Up', position=Pos1},
-    Snake2 = #snake{id=two, direction='Left', position=Pos2},
-    [Snake1, Snake2].
+    Pos2 = in({10,9}, Pos1),
+    Pos3 = in({10,8}, Pos2),
+    
+%%     PosB1 = in({100,100}, queue:new()),
+%%     PosB2 = in({101,100}, PosB1),
+%%     PosB3 = in({102,100}, PosB2),
+    Snake1 = #snake{id=one, direction='Down', position=Pos3, length = 3},
+%%    Snake2 = #snake{id=two, direction='Left', position=PosB3, length = 3},
+    [Snake1].
+
+gen_border_list (Size) ->
+    
+%%     {X, Y} = Size,
+%%     [{A,B} || A <- lists:seq(0,X-1), B <- lists:seq(0,Y-1), (A =:= 0 ; A =:= X-1)].
 
 debug() ->
     game_logic ! {self(), get_state},
@@ -111,13 +124,10 @@ game_loop (GameState, ReceivedMoveQueue) ->
 	    case Clock + 1 =:= NewClock of
 		true ->
 		    io:format ("Advancing Clock~n"),
-		    _MoveEvents = receive_all_events(MyId),
+		    MoveEvents = receive_all_events(MyId),
 		    %% always broadcast the events even if the movelist is empty
-		    %%message_passer:broadcast_events(MoveEvents),
-
-		    io:format ("Done Receiveing events~n"),
+		    message_passer:broadcast(MoveEvents),
 		    {NewGameState, NewReceivedMoveQueue} = advance_game(GameState, ReceivedMoveQueue),
-		    io:format ("Looping~n"),
 		    game_loop(NewGameState, NewReceivedMoveQueue);
 
 		_Any -> % ignore other 
@@ -129,10 +139,7 @@ game_loop (GameState, ReceivedMoveQueue) ->
 	    {SnakeId, Queue} = lists:keyfind(SnakeId, 1, ReceivedMoveQueue),
 	    NewQueue = process_move_list(MoveList, Queue),
 	    NewReceivedMoveQueue = lists:keystore(SnakeId, 1, ReceivedMoveQueue, {SnakeId, NewQueue}),
-	    game_loop(GameState, NewReceivedMoveQueue);
-	Default ->
-	    io:format("What are you doing!!!! ~p~n", [Default]),
-	    game_loop(GameState, ReceivedMoveQueue)
+	    game_loop(GameState, NewReceivedMoveQueue)
     end.
 
 %% we haven't received the gui events until now. now we just receive all of them an put
@@ -146,7 +153,7 @@ receive_all_events(Id, MoveList) ->
 	    receive_all_events(Id, [Direction | MoveList])
     after
 	0 ->
-	    {move, Id, lists:reverse(MoveList)}
+	    {game_logic, {move, Id, lists:reverse(MoveList)}}
     end.
 
 %% returns {NewGameState, NewMoveQueue}
@@ -328,11 +335,11 @@ remove_from_back(Q1) ->
     {_, Q2} = out_r(Q1),
     Q2.
 
-move_snake_function('Up') ->
+move_snake_function('Down') ->
     fun ({X,Y}) ->
 	    {X, Y+1}
     end;
-move_snake_function('Down') ->
+move_snake_function('Up') ->
     fun ({X,Y}) ->
 	    {X, Y-1}
     end;

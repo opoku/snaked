@@ -15,7 +15,7 @@
 
 start(Port, HostList, MyId) ->
     spawn(fun() -> server(Port, HostList, MyId) end),
-	ok.
+    ok.
 
 stop() ->
 	message_passer ! {die}.
@@ -73,7 +73,7 @@ get_lock(onResource) ->
 
 %send a broadcast message
 broadcast(Msg) ->
-	message_passer ! {broadcast, Msg}.
+    message_passer ! {broadcast, Msg}.
 
 loop(Socket, ServerState) ->
     HostList = ServerState#server_state.host_list,

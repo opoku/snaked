@@ -11,7 +11,7 @@
 
 
 start() ->
-    start(2000).
+    start(200).
 
 start(TimeOut) ->
     spawn(clock, init, [TimeOut]).
@@ -30,8 +30,8 @@ stop() ->
 loop(Time) ->
 	loop(Time, 1).
 
-loop(_, 10) ->
-	done;
+%% loop(_, 10) ->
+%% 	done;
 
 loop(Time, Tick) ->
     receive
