@@ -66,11 +66,9 @@ route_message(Msg, Host, Port, HostList) ->
     {ok , {Id, Host, Port}} = find_id({Host, Port}, HostList),
     route_message(Msg, Id).
 
-
 get_lock(onResource) ->
 	message_passer ! {getLock, onResource}.    
 	
-
 %send a broadcast message
 broadcast(Msg) ->
     message_passer ! {broadcast, Msg}.
@@ -106,7 +104,7 @@ loop(Socket, ServerState) ->
 	    %% maybe exclude Me in acklist
 	    %% 
 	    Me = ServerState#server_state.myid,
-	    AckList = [{ack,NodeId,HostId,MId} || {NodeId,_Ip,_Port} <- HostList ],
+	    AckList = [{ack,NodeId,HostId,MId} || {NodeId,_Ip,_Port} <- HostList],
 
 	    %% send your acks
 	    bsend(Socket,{ack,Me,HostId,MsgId},HostList),
