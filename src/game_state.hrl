@@ -53,7 +53,13 @@
 	  position=queue:new(),
 
 	  %% the length of the snake
-	  length = 1}).
+	  length = 1,
+
+	  %% lives left
+          lives = 5,
+	
+	  %%score = 0
+          score = 0}).
 
 
 %% foods and obstacles are of type object.
