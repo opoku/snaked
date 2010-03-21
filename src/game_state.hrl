@@ -50,7 +50,15 @@
 	  position=queue:new(),
 
 	  %% the length of the snake
-	  length = 1}).
+	  length = 1,
+	
+	  %% current score of the snake
+	  score = 0,
+
+	  %% No. of lives granted to each snake
+	  lives = 5
+	
+	}).
 
 
 %% foods and obstacles are of type object.
