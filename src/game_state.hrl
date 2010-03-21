@@ -33,7 +33,10 @@
 	  clock = 0,
 
 	  %% the snakeid of the current node
-	  myid}).
+	  myid,
+      
+      %% new food that is generated - to be picked up by the clock whenever required
+      new_foods = []}).
 
 -record(snake,
 	{
@@ -73,3 +76,21 @@
 	  %% something.  initially this will be set to just 1
 	  value}).
 
+
+-record(food,
+    {
+      %% a list of coordinates the define where this object is located
+      %% each coordinate is a tuple consisting of the x,y location 
+      %% e.g., [{10,10},{11,10}]
+      %% the coordinates are in sequence
+      position,
+
+      %% the value is used for foods to determine something special about the food.
+      %% e.g., regular foods would have a value of one which means any snakes
+      %% consuming this food will grow by one.. special foods might have some other
+      %% value to allow the snakes to grow longer or to make them invisible or
+      %% something.  initially this will be set to just 1
+      value,
+      
+      %% this food item should be alive till logical tick alive_till_tick unless a snake eats it
+      alive_till_tick}).

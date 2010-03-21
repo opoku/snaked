@@ -92,6 +92,15 @@ debug() ->
 	    Any
     end.
 
+get_game_state() ->
+    game_logic ! {self(), get_game_state},
+    Pid = whereis(game_logic),
+    receive
+    {Pid, GameState} ->
+        GameState
+    end.
+
+
 %%% 
 %% possible values for direction are the atoms [up, down, left, right]
 %% returns the atom ok
@@ -102,7 +111,7 @@ send_event(Direction) ->
 
 game_loop (GameState, ReceivedMoveQueue) ->
     io:format("starting game_loop~n"),
-    #game_state{clock=Clock, myid = MyId} = GameState,
+    #game_state{clock=Clock, myid = MyId, foods = Foods} = GameState,
     receive
 	{'EXIT', Pid, Reason} ->
 	    io:format("Pid ~p exited for reason ~p~n", [Pid, Reason]),
@@ -114,12 +123,16 @@ game_loop (GameState, ReceivedMoveQueue) ->
 	    io:format("Getstate~n"),
 	    Pid ! {GameState, ReceivedMoveQueue},
 	    game_loop(GameState, ReceivedMoveQueue);
+    {Pid, get_game_state} ->
+        io:format("Get Game State~n"),
+        Pid ! {self(), GameState},
+        game_loop(GameState, ReceivedMoveQueue);
 	{become, Mod, Func} ->
 	    io:format("Becoming ~p:~p~n", [Mod, Func]),
 	    apply(Mod, Func, [GameState, ReceivedMoveQueue]);
 	{die} ->
 	    io:format("Game Logic Dying~n");
-	{tick, NewClock} ->
+	{tick, NewClock, NewFoods} ->
 	    io:format ("Received tick for clock ~p old Clock ~p~n", [NewClock, Clock]),
 	    case Clock + 1 =:= NewClock of
 		true ->
@@ -127,8 +140,11 @@ game_loop (GameState, ReceivedMoveQueue) ->
 		    MoveEvents = receive_all_events(MyId),
 		    %% always broadcast the events even if the movelist is empty
 		    message_passer:broadcast(MoveEvents),
-		    {NewGameState, NewReceivedMoveQueue} = advance_game(GameState, ReceivedMoveQueue),
-		    game_loop(NewGameState, NewReceivedMoveQueue);
+            NewGameState0 = GameState#game_state{foods = Foods ++ NewFoods},
+		    {NewGameState, NewReceivedMoveQueue} = advance_game(NewGameState0, ReceivedMoveQueue),
+            %% We create new food here for use by the clock whenever it wants to use.
+            NewGameState1 = food:generate_foods(NewGameState),
+            game_loop(NewGameState1, NewReceivedMoveQueue);
 
 		_Any -> % ignore other 
 		    game_loop(GameState, ReceivedMoveQueue)
@@ -222,12 +238,6 @@ evaluate_obstacles(GS) ->
     Results = [{killed, S#snake.id}|| S <- DeadSnakes],
     {GS#game_state{snakes=AliveSnakes}, Results}.
 
-evaluate_food(GS) ->
-    %% returns {GS1, Results}
-    #game_state{snakes=Snakes, foods=Foods} = GS,
-    {Snakes1, Foods1, Results} = evaluate_food(Snakes, Foods),
-    {GS#game_state{snakes=Snakes1, foods=Foods1}, Results}.
-
 build_obstacle_map(Objects) ->
     build_obstacle_map(Objects, dict:new()).
 
@@ -262,7 +272,28 @@ feed_snake(Snake, [Food | OtherFoods], DoneFoods) ->
     end;
 feed_snake(Snake, [], DoneFoods) ->
     {not_fed, {Snake, DoneFoods}}.
+
+remove_stale_foods(Foods, Tick) ->
+    remove_stale_foods(Foods, [], Tick).
     
+remove_stale_foods([Food|RemainingFoods], DoneFoods, Tick) ->
+    #food{alive_till_tick = AliveTillTick} = Food,
+    case AliveTillTick < Tick of
+        true ->
+            remove_stale_foods(RemainingFoods, [Food|DoneFoods], Tick);
+        false ->
+            remove_stale_foods(RemainingFoods, DoneFoods, Tick)
+    end;
+remove_stale_foods([], DoneFoods, Tick) ->
+    DoneFoods.
+
+evaluate_food(GS) ->
+    %% returns {GS1, Results}
+    #game_state{snakes=Snakes, foods=Foods, clock = Tick} = GS,
+    {Snakes1, Foods1, Results} = evaluate_food(Snakes, Foods),
+    NewFoods = remove_stale_foods(Foods1, Tick),
+    {GS#game_state{snakes=Snakes1, foods=NewFoods}, Results}.
+
 evaluate_food(Snakes, Foods) ->
     evaluate_food(Snakes, Foods, [], []).
 
