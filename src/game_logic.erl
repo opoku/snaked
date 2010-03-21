@@ -56,7 +56,11 @@ stop() ->
 init(Id) ->
     io:format("Registered ~p as game_logic~n", [self()]),
 
-    GameState = #game_state{snakes=gen_snakes(), myid = Id},
+
+    Snakes = gen_snakes(),
+    Obstacles = gen_obstacles(),
+
+    GameState = #game_state{snakes=Snakes, obstacles=Obstacles, myid = Id},
     %process_flag(trap_exit, true),
     
     snake_ui:start(GameState#game_state.size),
@@ -80,15 +84,15 @@ gen_snakes() ->
 %%    Snake2 = #snake{id=two, direction='Left', position=PosB3, length = 3},
     [Snake1].
 
-gen_border_list (_Size) ->
-    done.
-%%     {X, Y} = Size,
-%%     [{A,B} || A <- lists:seq(0,X-1), B <- lists:seq(0,Y-1), (A =:= 0 ; A =:= X-1)].
+gen_obstacles() ->
+    {ok, [Border]} = file:consult("../resources/border.txt"),
+    #object{type=obstacle, position = Border}.
 
 debug() ->
     game_logic ! {self(), get_state},
+    Pid = whereis(game_logic),
     receive
-	Any ->
+	{Pid, Any} ->
 	    Any
     end.
 
@@ -112,7 +116,7 @@ game_loop (GameState, ReceivedMoveQueue) ->
 	    game_loop(GameState, ReceivedMoveQueue);
 	{Pid, get_state} ->
 	    io:format("Getstate~n"),
-	    Pid ! {GameState, ReceivedMoveQueue},
+	    Pid ! {self(), {GameState, ReceivedMoveQueue}},
 	    game_loop(GameState, ReceivedMoveQueue);
 	{become, Mod, Func} ->
 	    io:format("Becoming ~p:~p~n", [Mod, Func]),
