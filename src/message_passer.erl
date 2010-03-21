@@ -14,7 +14,7 @@
 
 start(Port, HostList, MyId) ->
     spawn(fun() -> server(Port, HostList, MyId) end),
-	ok.
+    ok.
 
 stop() ->
 	message_passer ! {die}.
@@ -67,7 +67,7 @@ route_message(Msg, Host, Port, HostList) ->
 
 %send a broadcast message
 broadcast(Msg) ->
-	message_passer ! {broadcast, Msg}.
+    message_passer ! {broadcast, Msg}.
 
 loop(Socket, ServerState) ->
     HostList = ServerState#server_state.host_list,

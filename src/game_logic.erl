@@ -57,9 +57,12 @@ init(Id) ->
     io:format("Registered ~p as game_logic~n", [self()]),
 
     GameState = #game_state{snakes=gen_snakes(), myid = Id},
-    process_flag(trap_exit, true),
+    %process_flag(trap_exit, true),
+    
     snake_ui:start(GameState#game_state.size),
+    
     #game_state{snakes=Snakes} = GameState,
+
     %% there is a queue for each snake
     ReceivedMoveQueue = [{SnakeId, queue:new()} || #snake{id=SnakeId} <- Snakes],
     game_loop(GameState, ReceivedMoveQueue).
@@ -124,10 +127,7 @@ game_loop (GameState, ReceivedMoveQueue) ->
 		    MoveEvents = receive_all_events(MyId),
 		    %% always broadcast the events even if the movelist is empty
 		    message_passer:broadcast(MoveEvents),
-
-		    io:format ("Done Receiveing events~n"),
 		    {NewGameState, NewReceivedMoveQueue} = advance_game(GameState, ReceivedMoveQueue),
-		    io:format ("Looping~n"),
 		    game_loop(NewGameState, NewReceivedMoveQueue);
 
 		_Any -> % ignore other 
