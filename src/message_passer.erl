@@ -134,23 +134,23 @@ loop(Socket, ServerState) ->
 		LockMessage = {lockRequest, _Something},
 		bsend(Socket, LockMessage, HostList),
 		loop(Socket, ServerState);
-	{lockRequest, _SomeThing} ->
-		LockState = ServerState#server_state.lock_state,
+%% 	{lockRequest, _SomeThing} ->
+%% 		LockState = ServerState#server_state.lock_state,
 		
-		case LockState of
-			released -> 
-				LockMessage = {lockReply,_Something},
-				bsend(Socket, LockMessage, HostList),
-				loop(Socket,ServerState);
-			held ->
-				loop(Socket,ServerState);
-			wanted ->
-				% compare timestamps
-				loop(Socket,ServerState)
-		end;
+%% 		case LockState of
+%% 			released -> 
+%% 				LockMessage = {lockReply,_Something},
+%% 				bsend(Socket, LockMessage, HostList),
+%% 				loop(Socket,ServerState);
+%% 			held ->
+%% 				loop(Socket,ServerState);
+%% 			wanted ->
+%% 				% compare timestamps
+%% 				loop(Socket,ServerState)
+%% 		end;
 			
-	{lockReply, _Something} ->
-		nothing;
+%% 	{lockReply, _Something} ->
+%% 		nothing;
 
 	{add, HostConfig} ->
 	    io:format("Adding ~p to HostList ~p~n", [HostConfig, HostList]),
