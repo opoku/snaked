@@ -31,7 +31,7 @@ join_game() ->
     fail.
 
 broadcast_tick(Tick, NewFood) ->
-    message_passer:broadcast({game_logic, {tick, Tick}, {new_food, NewFood}}).
+    message_passer:broadcast({game_logic, {tick, Tick, NewFood}}).
 
 stop() ->
     catch (clock:stop()),

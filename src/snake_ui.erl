@@ -46,13 +46,14 @@ loop(Can,Snakes_List,Obstacle_List,Food_List,Messages_List)->
 
 	{display_obstacles, List}->
 	    object_disappear(Obstacle_List),
-	    Obstacle_List= display_board(List,Can),
-	    loop(Can,Snakes_List,Obstacle_List, Food_List,Messages_List);
+	    Obstacle_List1= display_board(List,Can),
+	    io:format("display_board returned\n", []),
+	    loop(Can,Snakes_List,Obstacle_List1, Food_List,Messages_List);
 
 	{display_food, List}->
 	    object_disappear(Food_List),
-	    Food_List = display_food(List, Can),
-	    loop(Can,Snakes_List,Obstacle_List, Food_List,Messages_List);
+	    Food_List1 = display_food(List, Can),
+	    loop(Can,Snakes_List,Obstacle_List, Food_List1,Messages_List);
 
 	{display_snakes, List}->
 	    io:format("SnakesList ~p~n", [List]),
@@ -68,14 +69,19 @@ loop(Can,Snakes_List,Obstacle_List,Food_List,Messages_List)->
     end.
 
 
-display(#game_state{snakes = Snakes, obstacles = Obstacles, foods = Food, size = Size} = GameState, Results) ->
+display(#game_state{snakes = Snakes, obstacles = Obstacles, foods = Food, size = Size, clock = Tick} = GameState, Results) ->
     %% do something with results
     %% Results is a list contains tuples like
     %% {killed, SnakeId} | {eaten, }
 
-    io:format("GameState: ~p  Results : ~p~n", [GameState, Results]),
+    %%io:format("GameState: ~p  Results : ~p~n", [GameState, Results]),
 
-    snake_ui ! {display_obstacles, Obstacles},
+    if
+	Tick < 2 ->
+	    snake_ui ! {display_obstacles, Obstacles};
+	true ->
+	    done
+    end,
     snake_ui ! {display_food, Food},
     snake_ui ! {display_snakes, Snakes},
     done.
@@ -106,14 +112,15 @@ obstacles(#object{type = obstacle, position = Coords},Can)->
 	          [{X,Y}] -> [{X,Y},{X,Y}];
 		  _Default -> Coords
 	      end, 		
-    gs:create(line, Can, [{coords,resize(Coords)},{fill,cyan},{width,10}]).
+    gs:create(line, Can, [{coords,resize(Coords)},{fg,black},{width,10}]).
 
 display_food(List,Can)->
-    io:format("display food called~n"),
+    io:format("display food called... ~nFoodlist ~p~n", [List]),
     lists:map(fun(X) -> food(X,Can) end, List).
 
-food(#object{type = food, position = [{X,Y}], value = v}, Can)->
-    gs:create(line, Can, [{coords,[{X,Y},{X,Y}]},{fill,green},{width,10}]).
+food(#food{position = [{X,Y}]}, Can)->
+    [{X1,Y1}] = resize([{X,Y}]),
+    gs:create(rectangle, Can, [{coords,[{X1-5,Y1-5},{X1+5,Y1+5}]},{fg,green}, {fill,green}]).
 
 display_snakes(List,Can)->
     lists:map(fun(X)->snak(X,Can) end, List).
@@ -126,9 +133,7 @@ snak(#snake{position = P},Can)->
 	     [{X,Y},{X,Y}];
 	_Default-> Coords	 
     end,
-    gs:create(line, Can, [{coords,resize(Coords1)},{width, 5}]).
-		      
-
+    gs:create(line, Can, [{coords,resize(Coords1)}, {fg,cyan},{width, 10}]).
 
 display_snakes(List, Can, Snakes_List)->
     io:format("display snakes called~n",[]),

@@ -45,10 +45,10 @@ loop(Time, Tick) ->
     after Time ->
         %% Generate food every FOOD_GENERATION_INTERVAL.
         if
-            (Tick rem ?FOOD_GENERATION_INTERVAL =:= 0) ->
+            (Tick rem ?FOOD_GENERATION_INTERVAL =:= 1) ->
                 NewFood = food:get_new_foods(),
                 game_manager:broadcast_tick(Tick, NewFood);
-            (Tick rem ?FOOD_GENERATION_INTERVAL =/= 0) ->
+            (Tick rem ?FOOD_GENERATION_INTERVAL =/= 1) ->
                 game_manager:broadcast_tick(Tick, [])
         end,
 	    loop(Time, Tick+1)

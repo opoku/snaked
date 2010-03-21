@@ -87,7 +87,7 @@ gen_snakes() ->
 
 gen_obstacles() ->
     {ok, [Border]} = file:consult("../resources/border.txt"),
-    #object{type=obstacle, position = Border}.
+    [#object{type=obstacle, position = Border}].
 
 debug() ->
     game_logic ! {self(), get_state},
@@ -128,10 +128,10 @@ game_loop (GameState, ReceivedMoveQueue) ->
 	    io:format("Getstate~n"),
 	    Pid ! {self(), {GameState, ReceivedMoveQueue}},
 	    game_loop(GameState, ReceivedMoveQueue);
-    {Pid, get_game_state} ->
-        io:format("Get Game State~n"),
-        Pid ! {self(), GameState},
-        game_loop(GameState, ReceivedMoveQueue);
+	{Pid, get_game_state} ->
+	    io:format("Get Game State~n"),
+	    Pid ! {self(), GameState},
+	    game_loop(GameState, ReceivedMoveQueue);
 	{become, Mod, Func} ->
 	    io:format("Becoming ~p:~p~n", [Mod, Func]),
 	    apply(Mod, Func, [GameState, ReceivedMoveQueue]);
@@ -145,11 +145,11 @@ game_loop (GameState, ReceivedMoveQueue) ->
 		    MoveEvents = receive_all_events(MyId),
 		    %% always broadcast the events even if the movelist is empty
 		    message_passer:broadcast(MoveEvents),
-            NewGameState0 = GameState#game_state{foods = Foods ++ NewFoods},
+		    NewGameState0 = GameState#game_state{foods = Foods ++ NewFoods},
 		    {NewGameState, NewReceivedMoveQueue} = advance_game(NewGameState0, ReceivedMoveQueue),
-            %% We create new food here for use by the clock whenever it wants to use.
-            NewGameState1 = food:generate_foods(NewGameState),
-            game_loop(NewGameState1, NewReceivedMoveQueue);
+		    %% We create new food here for use by the clock whenever it wants to use.
+		    NewGameState1 = food:generate_foods(NewGameState),
+		    game_loop(NewGameState1, NewReceivedMoveQueue);
 
 		_Any -> % ignore other 
 		    game_loop(GameState, ReceivedMoveQueue)
@@ -240,31 +240,31 @@ process_dead_snakes(DeadSnakes) ->
 	process_dead_snakes(DeadSnakes,[],[],[]).
 
 process_dead_snakes([DeadSnake | OtherDeadSnakes],DeadSnakes1,RegeneratedSnakes,Results)->
-	#snake{id=SnakeId, lives=SnakeLives} = DeadSnake,
-	case SnakeLives > 0 of
-		true ->
-			SnakeLivesLeft = SnakeLives - 1,
-			%TODO: use a better border generate function%
-			NewPosition = in({1,1},in({2,1},in({3,1},queue:new()))),
-			NewSnake = DeadSnake#snake{lives=SnakeLivesLeft,position=NewPosition,direction='Right'},
-			Results1 = [{regenerated,SnakeId} | Results],
-			RegeneratedSnakes1 = [NewSnake | RegeneratedSnakes],
-			process_dead_snakes(OtherDeadSnakes,DeadSnakes1,RegeneratedSnakes1,Results1);
-		false ->
-			Results1 = [{killed,SnakeId} | Results],
-			DeadSnakes2 = [DeadSnake | DeadSnakes1],
-			process_dead_snakes(OtherDeadSnakes,DeadSnakes2,RegeneratedSnakes,Results1)
-	end;
+    #snake{id=SnakeId, lives=SnakeLives} = DeadSnake,
+    case SnakeLives > 0 of
+	true ->
+	    SnakeLivesLeft = SnakeLives - 1,
+	    %%TODO: use a better border generate function%
+	    NewPosition = in({1,1},in({2,1},in({3,1},queue:new()))),
+	    NewSnake = DeadSnake#snake{lives=SnakeLivesLeft,position=NewPosition,direction='Right',length=3},
+	    Results1 = [{regenerated,SnakeId} | Results],
+	    RegeneratedSnakes1 = [NewSnake | RegeneratedSnakes],
+	    process_dead_snakes(OtherDeadSnakes,DeadSnakes1,RegeneratedSnakes1,Results1);
+	false ->
+	    Results1 = [{killed,SnakeId} | Results],
+	    DeadSnakes2 = [DeadSnake | DeadSnakes1],
+	    process_dead_snakes(OtherDeadSnakes,DeadSnakes2,RegeneratedSnakes,Results1)
+    end;
 
 process_dead_snakes([],DeadSnakes1,RegeneratedSnakes,Results)->
-	{DeadSnakes1,RegeneratedSnakes,Results}.
+    {DeadSnakes1,RegeneratedSnakes,Results}.
 
 evaluate_obstacles(GS) ->
     %% returns {GS1, Results}
     #game_state{snakes=Snakes, obstacles=Obs} = GS,
     ObstacleMap = build_obstacle_map(Snakes ++ Obs),
     {DeadSnakes, AliveSnakes} = lists:partition(fun(Snake) -> detect_collision(Snake, ObstacleMap) end, Snakes),
-	{DeadSnakes1,RegeneratedSnakes,Results} = process_dead_snakes(DeadSnakes),
+	{_DeadSnakes1,RegeneratedSnakes,Results} = process_dead_snakes(DeadSnakes),
 	AliveSnakes1 = AliveSnakes ++ RegeneratedSnakes,
     {GS#game_state{snakes=AliveSnakes1}, Results}.
 
@@ -293,7 +293,7 @@ feed_snake(Snake, Foods) ->
 
 feed_snake(Snake, [Food | OtherFoods], DoneFoods) ->
     #snake{position=PosQueue, length=SnakeLength, score=SnakeScore} = Snake,
-    #object{position=FoodPos, value=FoodValue} = Food,
+    #food{position=FoodPos, value=FoodValue} = Food,
     case find_point_in_point_list(front(PosQueue), FoodPos) of
 	true ->
 	    {fed, {Snake#snake{length=SnakeLength + FoodValue, score=SnakeScore+100}, DoneFoods ++ OtherFoods}};
@@ -309,12 +309,12 @@ remove_stale_foods(Foods, Tick) ->
 remove_stale_foods([Food|RemainingFoods], DoneFoods, Tick) ->
     #food{alive_till_tick = AliveTillTick} = Food,
     case AliveTillTick < Tick of
-        true ->
-            remove_stale_foods(RemainingFoods, [Food|DoneFoods], Tick);
         false ->
+	    remove_stale_foods(RemainingFoods, [Food|DoneFoods], Tick);
+        true ->
             remove_stale_foods(RemainingFoods, DoneFoods, Tick)
     end;
-remove_stale_foods([], DoneFoods, Tick) ->
+remove_stale_foods([], DoneFoods, _Tick) ->
     DoneFoods.
 
 evaluate_food(GS) ->
