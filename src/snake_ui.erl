@@ -45,22 +45,22 @@ loop(Can,Snakes_List,Obstacle_List,Food_List,Messages_List)->
 	    loop(Can,Snakes_List,Obstacle_List,Food_List,Messages_List);
 
 	{display_obstacles, List}->
-	    object_disappear(Obstacle_List),
 	    Obstacle_List1= display_board(List,Can),
+	    object_disappear(Obstacle_List),
 	    io:format("display_board returned\n", []),
 	    loop(Can,Snakes_List,Obstacle_List1, Food_List,Messages_List);
 
 	{display_food, List}->
-	    object_disappear(Food_List),
 	    Food_List1 = display_food(List, Can),
+	    object_disappear(Food_List),
 	    loop(Can,Snakes_List,Obstacle_List, Food_List1,Messages_List);
 
 	{display_snakes, List}->
 	    io:format("SnakesList ~p~n", [List]),
-	    object_disappear(Messages_List),
 	    Messages_List1 = display_messages(List,Can), 
-	    object_disappear(Snakes_List),
 	    Snakes_List1 = display_snakes(List, Can),
+	    object_disappear(Messages_List),
+	    object_disappear(Snakes_List),
 	    loop(Can, Snakes_List1, Obstacle_List, Food_List,Messages_List1);
 
 	{add_snake, #snake{id = Id, position = Coords}}->
