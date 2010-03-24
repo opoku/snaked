@@ -31,7 +31,7 @@ generate_random_number(N) ->
 
 %% Find out if position {X,Y} on the canvas is occupied (by snake/food/obstacle).    
 is_block_occupied(GameState, X, Y) ->
-    #game_state{snakes=Snakes, foods = Foods, obstacles = Obstacles} = GameState,
+    #game_state{snakes=Snakes, foods = _Foods, obstacles = Obstacles} = GameState,
     ObstacleMap = game_logic:build_obstacle_map(Snakes ++ Obstacles),
     dict:is_key({X, Y}, ObstacleMap).
 
