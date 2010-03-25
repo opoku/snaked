@@ -86,7 +86,7 @@ gen_snakes() ->
     [Snake1].
 
 gen_obstacles() ->
-    {ok, [Border]} = file:consult("../resources/border.txt"),
+    {ok, [Border]} = file:consult("../src/resources/border.txt"),
     [#object{type=obstacle, position = Border}].
 
 debug() ->

@@ -10,8 +10,7 @@
 
 % the game_logic and game_manager processes are registered processes
 
--record(server_state, {host_list, msgid = 0, acklist = [], myid, hold_queue=queue:new(), lock_state, time_stamp = 0}).
-%-record(lock_state, {released, held, wanted}).
+-record(server_state, {host_list, msgid = 0, acklist = [], myid, hold_queue = [], lock_state, timestamp = 0}).
 
 start(Port, HostList, MyId) ->
     spawn(fun() -> server(Port, HostList, MyId) end),
@@ -21,12 +20,12 @@ stop() ->
 	message_passer ! {die}.
 
 server(Port, HostList, MyId) ->
-    {ok, Socket} = gen_udp:open(Port, [binary]),
-    register(message_passer, self()),
-    HostList_tmp = [{MyId, "localhost", Port} | HostList],
-    HostList1 = [{Id, hostname_to_ip(Host), Port1} || {Id, Host, Port1} <- HostList_tmp],
-    ServerState = #server_state{host_list=HostList1, myid=MyId},
-    loop(Socket, ServerState).
+     {ok, Socket} = gen_udp:open(Port, [binary]),
+     register(message_passer, self()),
+     HostList_tmp = [{MyId, "localhost", Port} | HostList],
+     HostList1 = [{Id, hostname_to_ip(Host), Port1} || {Id, Host, Port1} <- HostList_tmp],
+     ServerState = #server_state{host_list=HostList1, myid=MyId},
+     loop(Socket, ServerState).
 
 usend(Socket, Id, Msg, HostList) ->
     {ok, {Id, Host, Port}} = find_host(Id, HostList),
@@ -47,6 +46,17 @@ find_id({Host, Port}, [{Id, Host, Port} | _HostList]) -> {ok, {Id, Host, Port}};
 find_id(Key, [ _ | HostList]) -> find_id(Key, HostList);
 find_id(_, []) -> not_found.
 
+find_source_message({Source,MsgId},[{_,_,Source,MsgId,_}| _AckList]) -> found;
+find_source_message(Key, [_ | AckList]) -> find_source_message(Key,AckList);
+find_source_message(_,[]) -> not_found.
+
+delete_source_message({Source,MsgId},{_,_,MyId,MesgID,_}) -> found;
+delete_source_message(_,_) -> not_found.
+
+%TODO: implement this!!
+check_lock_replies({},[{_Type, NodeId,HostId,MsgId,_} | _LockReply]) ->
+	nothing.
+	
 
 %% this is primarily called when a message needs to be sent to other processes like
 %% game_logic
@@ -73,9 +83,36 @@ get_lock(onResource) ->
 broadcast(Msg) ->
     message_passer ! {broadcast, Msg}.
 
+compare({_Type, MyId1, _MsgId, _Msg, NwTimeStamp1} = McastMsg1, {_Type, MyId2, _MsgId, _Msg, NwTimeStamp2} = McastMsg2) ->
+	case NwTimeStamp1 < NwTimeStamp2 of 
+		true ->
+			true;
+		false ->
+			case NwTimeStamp1 =:= NwTimeStamp2 of
+				true ->
+					MyId1 < MyId2;
+				false ->
+					false
+			end
+	end.
+
+compare({MyId1, NwTimeStamp1}, {MyId2,NwTimeStamp2}) ->
+	case NwTimeStamp1 < NwTimeStamp2 of 
+		true ->
+			true;
+		false ->
+			case NwTimeStamp1 =:= NwTimeStamp2 of
+				true ->
+					MyId1 < MyId2;
+				false ->
+					false
+			end
+	end.
+
 loop(Socket, ServerState) ->
     HostList = ServerState#server_state.host_list,
     MsgId = ServerState#server_state.msgid,
+	TimeStamp = ServerState#server_state.timestamp,
     receive
 	{udp, Socket, Host, Port, BinMsg} ->
 	    io:format("Received udp message from ~p : ~p~n", [{Host, Port}, BinMsg]),
@@ -92,64 +129,112 @@ loop(Socket, ServerState) ->
 	{multicast, Msg} ->
 	    %% reliable multicast
 	    io:format("Sending multicast message : ~p~n", [Msg]),
-	    NewMsgId = MsgId + 1,
-	    McastMsg = {rmulti, ServerState#server_state.myid, NewMsgId, Msg},
-	    bsend(Socket, McastMsg, HostList),
-	    loop(Socket, ServerState#server_state{msgid=NewMsgId});
-	{rmulti, HostId, MId, _Msg} = McastMsg ->
+ 	    NewMsgId = MsgId + 1,
+ 		NewTimeStamp = TimeStamp + 1,
+ 	    McastMsg = {rmulti,ServerState#server_state.myid,NewMsgId, Msg, NewTimeStamp},
+ 	    bsend(Socket, McastMsg, HostList),
+	    loop(Socket, ServerState#server_state{msgid = NewMsgId, timestamp = NewTimeStamp});
+	{rmulti, HostId, MId, Msg, TimeStamp} = McastMsg ->
 	    %% On receive {rmulti, MsgId, Msg}:
 	    %% 	   Create Acklist [{ack, NodeId_1, MsgId}, ... ]
 	    %% 	   bsend({ack, MyNode, Msgid})
-
 	    %% maybe exclude Me in acklist
 	    %% 
+		
+		case Msg of ->
+			{lockRequest,_} ->
+				message_passer ! {lockRequest,HostId,MId,TimeStamp},
+			{_,_} ->
+				io:format("Normal Multicast : ~p~n",[Msg])
+		end,
+
 	    Me = ServerState#server_state.myid,
-	    AckList = [{ack,NodeId,HostId,MId} || {NodeId,_Ip,_Port} <- HostList],
+		MyTimeStamp = ServerState#server_state.time_stamp,
+		
+		NewTimeStamp1 = case TimeStamp > MyTimeStamp of
+			true ->
+					TimeStamp + 1;
+			false ->
+					MyTimeStamp + 1
+		end,
+
+	    AckList = [{ack,NodeId,HostId,MId,NewTimeStamp1} || {NodeId,_Ip,_Port} <- HostList],
 
 	    %% send your acks
-	    bsend(Socket,{ack,Me,HostId,MsgId},HostList),
+	    bsend(Socket,{ack,Me,HostId,MsgId,NewTimeStamp1},HostList),
 
 	    %% add to hold queue
 	    HQ = ServerState#server_state.hold_queue,
-	    NewHQ = in(McastMsg, HQ),
+	    NewHQ = [McastMsg | HQ],
+		
+		%% sort the hold queue, based on the logical timestamps
+		SortedHQ = lists:sort(fun compare/2, NewHQ),
 	    
-	    loop(Socket,ServerState#server_state{acklist=AckList, hold_queue = NewHQ});
+	    loop(Socket,ServerState#server_state{acklist=AckList, hold_queue = SortedHQ});
 	
-	{ack, _AckNode, Source, MsgId} = Ack ->
+	{ack, _AckNode, Source, MsgId, _TimeStamp} = Ack ->
 	    AckList = ServerState#server_state.acklist,
 	    NewAckList = AckList -- Ack,
+		HoldQueue = ServerState#server_state.hold_queue,
 	    %% if newacklist is empty
 	    %% BUGGGG: fix a bug here with getting the message from the head of the hold queue
-	    %case find_source_message(Source,MsgId, NewAckList) of
-		%found ->
-		%    loop(Socket, ServerState);
-		%notfound ->
-		    %% process the message
-		%    route_message(Source, Msg)
-	    %end,
-	    loop(Socket, ServerState#server_state{acklist=NewAckList});
+	    case find_source_message(Source,MsgId, NewAckList) of
+		found ->
+		    loop(Socket, ServerState);
+		not_found ->
+			Head = [McastMsg3 | HoldQueue],
+			NewHoldQueue = case delete_source_message(Source,MsgId,McastMsg3) of
+								found ->
+									HoldQueue,
+									%% process the message
+		    						route_message(Source, Msg)
+								not_found ->
+					 				Head
+						   end,	
+	    end,
+	    loop(Socket, ServerState#server_state{acklist=NewAckList,hold_queue = NewHoldQueue});
 	{getLock, _Something} ->
-		LockMessage = {lockRequest, _Something},
-		bsend(Socket, LockMessage, HostList),
+		LockMessage = {lockRequest, _},
+		message_passer ! {multicast,LockMessage},
+%%		bsend(Socket, LockMessage, HostList),
 		loop(Socket, ServerState);
-%% 	{lockRequest, _SomeThing} ->
-%% 		LockState = ServerState#server_state.lock_state,
-		
-%% 		case LockState of
-%% 			released -> 
-%% 				LockMessage = {lockReply,_Something},
+ 	{lockRequest, HostId, MsgId, ReqTimeStamp} ->
+ 		LockState = ServerState#server_state.lock_state,
+		MyTimeStamp1 = ServerState#server_state.timestamp,
+		NodeId = ServerState#server_state.myid,
+ 		case LockState of
+ 			released -> 
+ 				ReplyMessage = {lockReply,NodeId,HostId,MsgId,'OK'},
+				message_passer ! {multicast,ReplyMessage},
 %% 				bsend(Socket, LockMessage, HostList),
-%% 				loop(Socket,ServerState);
-%% 			held ->
-%% 				loop(Socket,ServerState);
-%% 			wanted ->
-%% 				% compare timestamps
-%% 				loop(Socket,ServerState)
-%% 		end;
-			
-%% 	{lockReply, _Something} ->
-%% 		nothing;
+ 				loop(Socket,ServerState);
+ 			held ->
+ 				loop(Socket,ServerState);
+ 			wanted ->
+ 				% compare timestamps
+				case compare({HostId,ReqTimeStamp},{NodeId,MyTimeStamp1}) of
+					true ->
+						ReplyMessage = {lockReply,NodeId,HostId,MsgId,'OK'},
+						message_passer ! {multicast,ReplyMessage},
+					false ->
+						loop(Socket,ServerState),
+				end,
 
+ 				loop(Socket,ServerState)
+ 		end;
+			
+ 	{lockReply, NodeId, HostId, MsgId, 'OK'} = LReply1 ->
+		%% for each node in the hostlist, check if OK reply received,
+		%% if true, takelock(),else loop back
+			LockReply = [LReply1 | _],
+			case check_lock_replies(LockReply) of
+				found ->
+					loop(Socket,ServerState),					
+				not_found ->
+					%TODO: implement take_lock
+					take_lock(OnResource),
+			end,
+		loop(Socket,ServerState);
 	{add, HostConfig} ->
 	    io:format("Adding ~p to HostList ~p~n", [HostConfig, HostList]),
 	    {Id, Host, Port} = HostConfig,
