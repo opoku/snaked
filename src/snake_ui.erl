@@ -16,7 +16,7 @@ start_gui({X,Y}) ->
     Can = gs:create(canvas,Win,[{width, ((X * 10) + 200)},{height, (Y * 10)},{bg,white},{keypress,true}]),
     Snakes_List = [],
     %%Line = gs:create(line,Can,[{coords,[{100,100},{100,110}]},{arrow,none},{width,5}]),
-    gs:config(Win,{map,true}),
+    gs:config(Win,[{map,true},raise]),
     %%display_board([#object{type = obstacle,position = [{25,25},{30,30}] , value = 20}, #object{type = obstacle,position = [{100,100},{105,105}], value = 10}],Can),
     Food_List = [],
     Obstacle_List = [],

@@ -86,7 +86,11 @@ gen_snakes() ->
     [Snake1].
 
 gen_obstacles() ->
-    {ok, [Border]} = file:consult("../resources/border.txt"),
+    {Root, _Options} = filename:find_src(game_logic),
+    
+    PathToBorder = filename:absname_join(filename:dirname(Root), "../resources/border.txt"),
+    io:format("path: ~p~n", [PathToBorder]),
+    {ok, [Border]} = file:consult(PathToBorder),
     [#object{type=obstacle, position = Border}].
 
 debug() ->

@@ -1,0 +1,1 @@
+{[clock, food, game_logic, game_manager, message_passer, snake_ui],[{outdir,"../ebin/"}]}.
