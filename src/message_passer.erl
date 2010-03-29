@@ -31,25 +31,41 @@ ping_test(Count, TimeOut) ->
     ping_test(0, Count, TimeOut).
 
 ping_test(Count, Count, TimeOut) ->
-    receive_pongs(TimeOut, []);
+    RecvList = receive_pongs(TimeOut, []),
+    Sum = lists:sum([I || {_, I} <- RecvList]),
+    io:format("Number of Messages Received ~p~n", [Sum]);
 	    
 ping_test(I, Count, Timeout) ->
+    case Count rem 10 of
+	0 ->
+	    sleep(50);
+	_ ->
+	    nothing
+    end,
     message_passer ! {broadcastping, I},
     ping_test(I+1, Count, Timeout).
+
+sleep(Time) ->
+    receive
+    after
+	Time ->
+	    done
+	      
+    end.
 
 receive_pongs(TimeOut, SeqCountList) ->
     receive
 	{pong, _Id, Seq} ->
-	    NewList = case lists:key_find(Seq, 1, SeqCountList) of
+	    NewList = case lists:keyfind(Seq, 1, SeqCountList) of
 			  {Seq, Count} ->
-			      lists:key_store(Seq, 1, SeqCountList, {Seq, Count+1});
+			      lists:keystore(Seq, 1, SeqCountList, {Seq, Count+1});
 			  false ->
-			      lists:key_store(Seq, 1, SeqCountList, {Seq, 0})
+			      lists:keystore(Seq, 1, SeqCountList, {Seq, 1})
 		      end,
 	    receive_pongs(TimeOut, NewList)
     after
 	TimeOut ->
-	    io:format("Received Sequence count ~p~n", [lists:keysort(1, SeqCountList)])
+	    lists:keysort(1, SeqCountList)
     end.
 
 server(Port, HostList, MyId) ->
