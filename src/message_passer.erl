@@ -378,6 +378,9 @@ loop(Socket, ServerState) ->
 	    MyId = ServerState#server_state.myid,
 	    message_passer ! {unicast, HostId, {pong,MyId,Seq}},
 	    loop(Socket, ServerState);
+	{pong, _, _} = Pong ->
+	    pong_listener ! Pong,
+	    loop(Socket, ServerState);
 	Any ->
 	    io:format("Ignoring unmatched message ~p~n", [Any]),
 	    loop(Socket, ServerState)
