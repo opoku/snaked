@@ -26,6 +26,32 @@ debug() ->
 	    Any
     end.
 
+ping_test(Count, TimeOut) ->
+    register(pong_listener, self()),
+    ping_test(0, Count, TimeOut).
+
+ping_test(Count, Count, TimeOut) ->
+    receive_pongs(TimeOut, []);
+	    
+ping_test(I, Count, Timeout) ->
+    message_passer ! {broadcastping, I},
+    ping_test(I+1, Count, Timeout).
+
+receive_pongs(TimeOut, SeqCountList) ->
+    receive
+	{pong, _Id, Seq} ->
+	    NewList = case lists:key_find(Seq, 1, SeqCountList) of
+			  {Seq, Count} ->
+			      lists:key_store(Seq, 1, SeqCountList, {Seq, Count+1});
+			  false ->
+			      lists:key_store(Seq, 1, SeqCountList, {Seq, 0})
+		      end,
+	    receive_pongs(TimeOut, NewList)
+    after
+	TimeOut ->
+	    io:format("Received Sequence count ~p~n", [lists:keysort(1, SeqCountList)])
+    end.
+
 server(Port, HostList, MyId) ->
     {ok, Socket} = gen_udp:open(Port, [binary]),
     register(message_passer, self()),
@@ -343,6 +369,14 @@ loop(Socket, ServerState) ->
 	    io:format("message_passer closing...~n");
 	{debug, Pid} ->
 	    Pid ! {message_passer, ServerState},
+	    loop(Socket, ServerState);
+	{broadcastping, Seq} ->
+	    MyId = ServerState#server_state.myid,
+	    message_passer ! {broadcast, {ping, MyId, Seq}},
+	    loop(Socket, ServerState);
+	{ping, HostId, Seq} ->
+	    MyId = ServerState#server_state.myid,
+	    message_passer ! {unicast, HostId, {pong,MyId,Seq}},
 	    loop(Socket, ServerState);
 	Any ->
 	    io:format("Ignoring unmatched message ~p~n", [Any]),
