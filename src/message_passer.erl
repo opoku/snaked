@@ -123,8 +123,9 @@ loop(Socket, ServerState) ->
     TimeStamp = ServerState#server_state.timestamp,
     receive
 	{udp, Socket, Host, Port, BinMsg} ->
-	    io:format("Received udp message from ~p : ~p~n", [{Host, Port}, BinMsg]),
-	    route_message(binary_to_term(BinMsg), Host, Port, HostList),
+	    MsgTerm = binary_to_term(BinMsg),
+	    io:format("Received udp message from ~p : ~p~n", [{Host, Port}, MsgTerm]),
+	    route_message(MsgTerm, Host, Port, HostList),
 	    loop(Socket, ServerState);
 	{unicast, Id, Msg} ->
 	    io:format("Sending unicast message to id ~p : ~p~n", [Id, Msg]),
@@ -148,7 +149,7 @@ loop(Socket, ServerState) ->
 	    %% 	   bsend({ack, MyNode, Msgid})
 	    %% maybe exclude Me in acklist
 	    %% 
-
+	    io:format("Processing Multicast message from ~p ~n", [McastMsg]),
 	    #server_state{myid=Me, timestamp=MyTimeStamp, acklist=PrevAckList} = ServerState,
 
 	    %% updating my own timestamp
@@ -162,7 +163,7 @@ loop(Socket, ServerState) ->
 	    AckList = [{ack,NodeId,HostId,MId,NewTimeStamp1} || {NodeId,_Ip,_Port} <- HostList],
 	    AllAckList = AckList ++ PrevAckList,
 	    %% send your acks
-	    bsend(Socket,{ack,Me,HostId,MsgId,NewTimeStamp1},HostList),
+	    message_passer ! {broadcast, {ack,Me,HostId,MsgId,NewTimeStamp1}},
 
 	    %% add to hold queue
 	    HQ = ServerState#server_state.hold_queue,
@@ -171,9 +172,11 @@ loop(Socket, ServerState) ->
 	    %% sort the hold queue, based on the logical timestamps
 	    SortedHQ = lists:sort(fun compare/2, NewHQ),
 
-	    loop(Socket,ServerState#server_state{acklist=AllAckList, hold_queue = SortedHQ});
+	    io:format("Contents of Hold queue ~p~n", [SortedHQ]),
 
+	    loop(Socket,ServerState#server_state{acklist=AllAckList, hold_queue = SortedHQ});
 	{ack, _AckNode, Source, MsgId, _TimeStamp} = Ack ->
+	    io:format("Received ack ~p~n", [Ack]),
 	    AckList = ServerState#server_state.acklist,
 	    NewAckList = AckList -- [Ack],
 	    HoldQueue = ServerState#server_state.hold_queue,
@@ -203,6 +206,7 @@ loop(Socket, ServerState) ->
 		    loop(Socket, ServerState#server_state{acklist=NewAckList,hold_queue = NewHoldQueue})
 		end;
 	{getLock, Pid, ResourceId} ->
+	    io:format("CAlling Getlock for ~p~n", [ResourceId]),
 	    LockStateList = ServerState#server_state.lock_state_list,
 	    MyNodeId = ServerState#server_state.myid,
 	    case lists:key_find(ResourceId, 1, LockStateList) of
@@ -220,6 +224,7 @@ loop(Socket, ServerState) ->
 		    loop(Socket, ServerState)
 	    end;
 	{releaseLock, Pid, ResourceId} ->
+	    io:format("CAlling releaseLock for ~p~n", [ResourceId]),
 	    LockStateList = ServerState#server_state.lock_state_list,
 	    MyNodeId = ServerState#server_state.myid,
 	    case lists:key_find(ResourceId, 1, LockStateList) of
@@ -239,6 +244,7 @@ loop(Socket, ServerState) ->
 	    end;
  	{lockRequest, HostId, MsgId, ReqTimeStamp, ResourceId} = RequestMsg ->
 	    %%	    {resourceid, lock_state}
+	    io:format("Received lockRequest ~p~n", [RequestMsg]),
 	    LockStateList = ServerState#server_state.lock_state_list,
 	    {ResourceId, LockState, RequestQueue, ReplyList, Pid} =
 		case lists:key_find(ResourceId, 1, LockStateList) of
@@ -290,6 +296,7 @@ loop(Socket, ServerState) ->
  	{lockReply, NodeId, HostId, MsgId, ResourceId} ->
 	    %% for each node in the hostlist, check if OK reply received,
 	    %% if true, takelock(),else loop back
+	    io:format("Received a lockReply from ~p~n", [NodeId]),
 	    LockStateList = ServerState#server_state.lock_state_list,
 	    {ResourceId, LockState, RequestQueue, ReplyList, ReqPid} = lists:key_find(ResourceId, 1, LockStateList),
 	    LReply2 = {lockReply, NodeId, HostId, MsgId},
