@@ -91,7 +91,7 @@ release_lock(OnResource) ->
 broadcast(Msg) ->
     message_passer ! {broadcast, Msg}.
 
-compare({_Type, MyId1, _MsgId, _Msg, NwTimeStamp1}, {_Type, MyId2, _MsgId, _Msg, NwTimeStamp2}) ->
+compare({rmulti, MyId1, _MsgId1, _Msg1, NwTimeStamp1}, {rmulti, MyId2, _MsgId2, _Msg2, NwTimeStamp2}) ->
     case NwTimeStamp1 < NwTimeStamp2 of 
 	true ->
 	    true;
