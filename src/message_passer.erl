@@ -142,7 +142,7 @@ loop(Socket, ServerState) ->
  	    McastMsg = {rmulti,ServerState#server_state.myid,NewMsgId, Msg, NewTimeStamp},
  	    bsend(Socket, McastMsg, HostList),
 	    loop(Socket, ServerState#server_state{msgid = NewMsgId, timestamp = NewTimeStamp});
-	{rmulti, HostId, MId, _Msg, TimeStamp} = McastMsg ->
+	{rmulti, HostId, MId, _Msg, MsgTimeStamp} = McastMsg ->
 	    %% On receive {rmulti, MsgId, Msg}:
 	    %% 	   Create Acklist [{ack, NodeId_1, MsgId}, ... ]
 	    %% 	   bsend({ack, MyNode, Msgid})
@@ -152,9 +152,9 @@ loop(Socket, ServerState) ->
 	    #server_state{myid=Me, timestamp=MyTimeStamp, acklist=PrevAckList} = ServerState,
 
 	    %% updating my own timestamp
-	    NewTimeStamp1 = case TimeStamp > MyTimeStamp of
+	    NewTimeStamp1 = case MsgTimeStamp > MyTimeStamp of
 				true ->
-				    TimeStamp + 1;
+				    MsgTimeStamp + 1;
 				false ->
 				    MyTimeStamp + 1
 			    end,
@@ -175,7 +175,7 @@ loop(Socket, ServerState) ->
 
 	{ack, _AckNode, Source, MsgId, _TimeStamp} = Ack ->
 	    AckList = ServerState#server_state.acklist,
-	    NewAckList = AckList -- Ack,
+	    NewAckList = AckList -- [Ack],
 	    HoldQueue = ServerState#server_state.hold_queue,
 	    %% if newacklist is empty
 	    %% BUGGGG: fix a bug here with getting the message from the head of the hold queue
