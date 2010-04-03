@@ -119,7 +119,7 @@ route_message(HostId, Msg) ->
     io:format("Route Message ~p from ~p~n", [Msg, HostId]),
     route_message(Msg).
 
-find_source_message({Source,MsgId},[{_,_,Source,MsgId,_}| _AckList]) -> found;
+find_source_message({Source,MsgId},[{_,_,Source,MsgId}| _AckList]) -> found;
 find_source_message(Key, [_ | AckList]) -> find_source_message(Key,AckList);
 find_source_message(_,[]) -> not_found.
 
@@ -240,10 +240,10 @@ loop(ServerState) ->
 				    MyTimeStamp + 1
 			    end,
 
-	    AckList = [{ack,NodeId,HostId,MId,NewTimeStamp1} || {NodeId, _Pid,_Ip,_Port} <- RegisteredList],
+	    AckList = [{ack,NodeId,HostId,MId} || {NodeId, _Pid,_Ip,_Port} <- RegisteredList],
 	    AllAckList = AckList ++ PrevAckList,
 	    %% send your acks
-	    message_passer:broadcast({ack,Me,HostId,MId,NewTimeStamp1}),
+	    message_passer:broadcast({ack,Me,HostId,MId}),
 
 	    %% add to hold queue
 	    HQ = ServerState#server_state.hold_queue,
@@ -254,8 +254,8 @@ loop(ServerState) ->
 
 	    io:format("Contents of Hold queue ~p~n", [SortedHQ]),
 
-	    loop(ServerState#server_state{acklist=AllAckList, hold_queue = SortedHQ, msg_tracker = NewMessageTrackingList});
-	{ack, _AckNode, Source, MsgId, _TimeStamp} = Ack ->
+	    loop(ServerState#server_state{acklist=AllAckList, timestamp=NewTimeStamp1, hold_queue = SortedHQ, msg_tracker = NewMessageTrackingList});
+	{ack, _AckNode, Source, MsgId} = Ack ->
 	    io:format("Received ack ~p~n", [Ack]),
 
 	    MessageTrackingList = ServerState#server_state.msg_tracker,

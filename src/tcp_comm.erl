@@ -82,7 +82,7 @@ comm_loop(#comm_state{socket=Socket, myseqno=SeqNo} = CommState) ->
 	    %% this exit tells message passer that we are dying.  message passer will handle the rest
 	    exit(socketclosed);
 	{send, Pid, Data} ->
-	    io:format("Sending message ~p [~p to ~p]~n", [Data, inet:sockname(Socket), inet:peername(Socket)]),
+	    %%io:format("Sending message ~p [~p to ~p]~n", [Data, inet:sockname(Socket), inet:peername(Socket)]),
 	    BinData = term_to_binary(Data),
 	    Result = gen_tcp:send(Socket, BinData),
 	    Pid ! {self(), Result},
