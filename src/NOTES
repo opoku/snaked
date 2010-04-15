@@ -1,0 +1,57 @@
+Newbie
+-------
+
+1. get game_list
+2. provide a choise to user
+   (b) user selects a game
+3. get, game, GameId
+4. a list of nodes
+5. broadcast to players (HELLO)
+6. wait for first reply (HI)
+   - disregard all other HIs
+7. unicast JOIN to handler
+8. if you can join
+   - you will start recving tick and event updates from players in group
+   - eventually you will also receive the game state for one of the tick/event updates
+  
+  else
+   you will receive (error, game_full)
+   close connections to node list
+9. try another game (back to 1)
+   or start a new game
+
+Message Passer
+----------------
+- differentiate between multiple connections (Guest and Player) and provide a way to switch between them
+
+Handler
+--------------------
+1. recv HELLO
+2. reply HI
+3. recv JOIN
+   (b) check for unique player id and change if necessary
+4. acquire lock on gameid
+5. check if game is full
+   if true, reply (error, game_full)
+   if false, 
+       add_new_player (see below)
+6. release lock
+
+To add player (handler)
+------------------------
+1. Tell everyone to make guest player into joined:
+   - tell MP to convert Guest connection to joined connection
+   - tell GL to add a plyer to the GameState and set (a) postion to empty
+     	     	      	       	   	     	     (b) set player type to joined
+2. Recv (JOINED) msg from newbie
+3. reply (Ok, gamestate) to newbie
+4. Add player to game server
+
+To start playing (Newbie)
+---------------------------
+1. Press a key to send non-null event to everyone
+2. Leader notices and 
+   (a) generates position for newbie
+   (b) sends the position to everyone in the tick message
+3. New player can start playing
+

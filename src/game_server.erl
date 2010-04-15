@@ -25,7 +25,9 @@ server_loop(Listen, CommState) ->
     case gen_tcp:accept(Listen) of
 	{ok, Socket} ->
 	    io:format("Connected on Socket ~p~n", [Socket]),
-	    NewCommState = loop(Socket, CommState),
+	    NewCommState = process_connection(Socket, CommState),
+	    gen_tcp:close(Socket),
+	    io:format("Socket ~p closed~n", [Socket]),
 	    server_loop(Listen, NewCommState);
 	%% if accept fails
 	{error, Reason} ->
@@ -33,7 +35,7 @@ server_loop(Listen, CommState) ->
 	    server_loop(Listen, CommState)
     end.
 
-loop(Socket, #comm_state{game_list = GameList, gameid = CurrentGameId} = CommState) ->
+process_connection(Socket, #comm_state{game_list = GameList, gameid = CurrentGameId} = CommState) ->
     receive
 	{tcp, Socket, Data} ->
 	    Data1 = binary_to_term(Data),
@@ -41,10 +43,10 @@ loop(Socket, #comm_state{game_list = GameList, gameid = CurrentGameId} = CommSta
 	    %% do something with received message
 	    case Data1 of
 		{get, game_list} ->
-		    GameIdList = [{GameId, length(NodeList)} || {GameId, _, NodeList} <- GameList],
+		    GameIdList = [{GameId, Name, length(NodeList)} || {GameId, Name, NodeList} <- GameList],
 		    GameIdListData = term_to_binary({game_list, GameIdList}),
 		    gen_tcp:send(Socket, GameIdListData),
-		    NewCommState = CommState;
+		    CommState;
 		%% send nodes in a game
 		{get, game, GameId} ->
 		    case lists:keyfind(GameId, 1, GameList) of
@@ -54,7 +56,7 @@ loop(Socket, #comm_state{game_list = GameList, gameid = CurrentGameId} = CommSta
 			false ->
 			    gen_tcp:send(Socket, term_to_binary({error, {game_not_found, GameId}}))
 		    end,
-		    NewCommState = CommState;
+		    CommState;
 
 		%% receive message from other nodes to add new nodes to a game and to
 		%% start a new game
@@ -62,12 +64,12 @@ loop(Socket, #comm_state{game_list = GameList, gameid = CurrentGameId} = CommSta
 		    NextGameId = CurrentGameId + 1,
 		    gen_tcp:send(Socket, term_to_binary({gameid, NextGameId})),
 		    NewGameList = lists:keystore(NextGameId, 1, GameList, {NextGameId, Name, []}),
-		    NewCommState = CommState#comm_state{gameid=NextGameId, game_list=NewGameList};
+		    CommState#comm_state{gameid=NextGameId, game_list=NewGameList};
 
 		{set, remove_game, GameId} ->
 		    NewGameList = lists:keydelete(GameId, 1, GameList),
 		    gen_tcp:send(Socket, term_to_binary({ok, game_removed})),
-		    NewCommState = CommState#comm_state{game_list=NewGameList};
+		    CommState#comm_state{game_list=NewGameList};
 		%% the person who is responsible for adding the player sends this message
 		{set, add_player, {GameId, {_PlayerId, _Ip, _Port} = Player}} ->
 		    case lists:keyfind(GameId, 1, GameList) of
@@ -75,29 +77,35 @@ loop(Socket, #comm_state{game_list = GameList, gameid = CurrentGameId} = CommSta
 			    NewNodeList = [Player | NodeList],
 			    NewGameList = lists:keystore(GameId, 1, GameList, {GameId, Name, NewNodeList}),
 			    gen_tcp:send(Socket, term_to_binary({ok, player_added})),
-			    NewCommState = CommState#comm_state{game_list=NewGameList};
+			    CommState#comm_state{game_list=NewGameList};
 			false ->
 			    gen_tcp:send(Socket, term_to_binary({error, {game_not_found, GameId}})),
-			    NewCommState = CommState
+			    CommState
 		    end;
 		{set, remove_player, {GameId, {_PlayerId, _Ip, _Port} = Player}} ->
 		    case lists:keyfind(GameId, 1, GameList) of
 			{GameId, Name, NodeList} ->
+			    Len1 = length(NodeList),
 			    NewNodeList = NodeList -- [Player],
-			    NewGameList = lists:keystore(GameId, 1, GameList, {GameId, Name, NewNodeList}),
-			    gen_tcp:send(Socket, term_to_binary({ok, player_removed})),
-			    NewCommState = CommState#comm_state{game_list=NewGameList};
+			    Len2 = length(NewNodeList),
+			    case Len1 =:= Len2 of
+				true ->
+				    %% nothing removed
+				    gen_tcp:send(Socket, term_to_binary({error, {player_not_found, Player}})),
+				    CommState;
+				false ->
+				    NewGameList = lists:keystore(GameId, 1, GameList, {GameId, Name, NewNodeList}),
+				    gen_tcp:send(Socket, term_to_binary({ok, player_removed})),
+				    CommState#comm_state{game_list=NewGameList}
+			    end;
 			false ->
 			    gen_tcp:send(Socket, term_to_binary({error, {game_not_found, GameId}})),
-			    NewCommState = CommState
+			    CommState
 		    end;
 		Any ->
 		    gen_tcp:send(Socket, term_to_binary({error, {invalid_message, Any}})),
-		    NewCommState = CommState
-	    end,
-	    gen_tcp:close(Socket),
-	    io:format("Socket ~p closed~n", [Socket]),
-	    NewCommState
+		    CommState
+	    end
     end.
     
 
@@ -124,8 +132,8 @@ client_loop(Socket, DataList) ->
     end.
 	
 	
-test_module() ->
-    %% make sure server is fresh beforehand
-    Tests = [{{get, game_list} , {game_list, []}},
-	     {{get, game, 0}, {error, {game_not_found, 0}}}
-	     ].
+%% test_module() ->
+%%     %% make sure server is fresh beforehand
+%%     Tests = [{{get, game_list} , {game_list, []}},
+%% 	     {{get, game, 0}, {error, {game_not_found, 0}}}
+%% 	     ].
