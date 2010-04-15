@@ -12,7 +12,7 @@ Newbie
 7. unicast JOIN to handler
 8. if you can join
    - you will start recving tick and event updates from players in group
-   - eventually you will also receive the game state for one of the tick/event updates
+   - when you have received events from all players in the game, send a (JOINED) to handler, then handler will reply with the game state
   
   else
    you will receive (error, game_full)
