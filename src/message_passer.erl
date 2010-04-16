@@ -10,7 +10,17 @@
 
 %% the game_logic and game_manager processes are registered processes
 
+%% registered list is a tuple of {NodeId, Pid, Host, Port}.  The Pid is the tcp_comm
+%% process that is responsible for the open socket that sends messages to the NodeId
+
+%% adding another field called status which is either guest or player
+
 -define(COM_MODULE,tcp_comm). %% can alternately be udp_comm
+
+-record(host_info, {nodeid, pid, host, port,
+		    %% status is either guest or player
+		    status = guest}).
+
 -record(server_state, {registered_list = [],
 		       msgid = 0, acklist = [], myid,
 		       myport,
@@ -73,6 +83,9 @@ release_lock(OnResource) ->
 	    {failed, Msg}
     end.
 
+make_player(NodeId) ->
+    message_passer ! {make_player, NodeId}.
+
 compare({rmulti, MyId1, _MsgId1, _Msg1, NwTimeStamp1}, {rmulti, MyId2, _MsgId2, _Msg2, NwTimeStamp2}) ->
     case NwTimeStamp1 < NwTimeStamp2 of 
 	true ->
@@ -123,16 +136,24 @@ find_source_message({Source,MsgId},[{_,_,Source,MsgId}| _AckList]) -> found;
 find_source_message(Key, [_ | AckList]) -> find_source_message(Key,AckList);
 find_source_message(_,[]) -> not_found.
 
+is_player(#host_info{status=player}) ->
+    true;
+is_player(#host_info{status=guest}) ->
+    false.
+
+is_guest(#host_info{status=player}) ->
+    false;
+is_guest(#host_info{status=guest}) ->
+    true.
+
 usend(Id, Msg, RegisteredList) ->
     io:format("Sending unicast message to id ~p : ~p~n", [Id, Msg]),
-    {Id, Pid, _, _} = lists:keyfind(Id, 1, RegisteredList),
+    #host_info{pid=Pid} = lists:keyfind(Id, #host_info.nodeid, RegisteredList),
     ok = tcp_comm:send_msg(Pid, Msg).
 
 bsend(Msg, RegisteredList) ->
     io:format("Sending broadcast message : ~p~n", [Msg]),
-    lists:foreach(fun ({_Id, Pid, _, _}) ->
-			  ok = tcp_comm:send_msg(Pid, Msg),
-			  sleep(10)
+    lists:foreach(fun (#host_info{pid=Pid}) -> ok = tcp_comm:send_msg(Pid, Msg)
 		  end, RegisteredList).
 
 loop(ServerState) ->
@@ -146,7 +167,16 @@ loop(ServerState) ->
 		    Ip = tcp_comm:get_host_ip(Pid),
 		    io:format("Registering nodeid ~p:~p~p~n", [NodeId, Ip, Port]),
 		    #server_state{registered_list = RegisteredList, msg_tracker = MessageTrackingList} = ServerState,
-		    NewRegisteredList = lists:keystore(NodeId, 1, RegisteredList,{NodeId, Pid, Ip, Port}),
+		    NewRegisteredList = case lists:keyfind(NodeId, #host_info.nodeid, RegisteredList) of
+					    #host_info{nodeid=NodeId} ->
+						%% node id already exists so tell new connection to select a new id
+						io:format("Nodeid ~p already exists~n", [NodeId]),
+						ok = tcp_comm:send_msg(Pid, {error, nodeid_exists, NodeId}),
+						RegisteredList;
+					    false ->
+						%% add node to registered list
+						lists:keystore(NodeId, #host_info.nodeid, RegisteredList,#host_info{nodeid=NodeId, pid=Pid, host=Ip, port=Port})
+					end,
 		    NewMessageTrackingList = lists:keystore(NodeId, 1, MessageTrackingList, {NodeId, -1}),
 		    loop(ServerState#server_state{registered_list = NewRegisteredList, msg_tracker = NewMessageTrackingList});
 		_Any ->
@@ -160,8 +190,8 @@ loop(ServerState) ->
 	    loop(ServerState#server_state{pid_list = [Pid | PidList]});
 	{'EXIT', Pid, Reason} ->
 	    RegisteredList = ServerState#server_state.registered_list,
-	    case lists:keytake(Pid, 2, RegisteredList) of
-		{value, {NodeId, Pid, Host, Port}, NewRegisteredList} ->
+	    case lists:keytake(Pid, #host_info.pid, RegisteredList) of
+		{value, #host_info{nodeid=NodeId, pid=Pid, host=Host, port=Port}, NewRegisteredList} ->
 		    case Reason of
 			socketclosed ->
 			    io:format("Socket for ~p{~p:~p} closed~n", [NodeId, Host, Port]);
@@ -198,6 +228,13 @@ loop(ServerState) ->
 	    usend(Id, Msg, RegisteredList),
 	    loop(ServerState);
 	{broadcast, Msg} ->
+	    %% only send messages to players
+	    RegisteredList = lists:filter(fun is_player/1, ServerState#server_state.registered_list),
+	    bsend(Msg, RegisteredList),
+	    loop(ServerState);
+
+	{broadcast_all, Msg} ->
+	    %% send messages to everyone
 	    RegisteredList = ServerState#server_state.registered_list,
 	    bsend(Msg, RegisteredList),
 	    loop(ServerState);
@@ -447,6 +484,22 @@ loop(ServerState) ->
 	{reset_server, _Pid} ->
 	    self() ! {kill_comm},
 	    loop(ServerState#server_state{acklist = [], hold_queue = []});
+
+	{make_player, NodeId} ->
+	    RegisteredList = ServerState#server_state.registered_list,
+	    NewRegisteredList = case lists:keyfind(NodeId, #host_info.nodeid, RegisteredList) of
+				    #host_info{status=guest} = HostInfo ->
+					io:format("Making ~p a player~n", [NodeId]),
+					HostInfo1 = HostInfo#host_info{status=player},
+					lists:keystore(NodeId, #host_info.nodeid, RegisteredList, HostInfo1);
+				    #host_info{status=player} = HostInfo ->
+					io:format("~p is already a player~n", [NodeId]),
+					RegisteredList
+				    false ->
+					io:format("Player Id ~p is not found~n", [NodeId]),
+					RegisteredList
+				end,
+	    loop(ServerState#server_state{registered_list=NewRegisteredList});
 	Any ->
 	    io:format("Ignoring unmatched message ~p~n", [Any]),
 	    loop(ServerState)

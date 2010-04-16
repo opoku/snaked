@@ -1,0 +1,1 @@
+-define(MAX_PLAYERS, 8).
