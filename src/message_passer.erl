@@ -54,6 +54,9 @@ unicast(NodeId, Msg) ->
     message_passer ! {unicast, NodeId, Msg},
     ok.
 
+connect(Host, Port) ->
+    message_passer ! {connect, Host, Port},
+    ok.
 
 get_lock(OnResource) ->
     message_passer ! {getLock, self(), OnResource},
