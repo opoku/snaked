@@ -3,31 +3,31 @@
 
 -include("game_defs.hrl").
 
--record(manager_state, {gameid}).
+-record(manager_state, {gameid, timeout = 5000}).
 
 %% TODO: race condition where the game_server's list of nodes is out of date
 
-start() ->
-    spawn(game_manager, init, []).
+start(MyNodeId) ->
+    spawn(game_manager, init, [MyNodeId]).
 
-init() ->
-
+init(MyNodeId) ->
     MyId = one,
     DefaultPort = 5555,
     %%Invoke message passer.
     ok = message_passer:start(DefaultPort, [], MyId),
 
-    spawn(game_manager, start_game_manager, []),
+    spawn(game_manager, start_game_manager, [#manager_state{gameid = MyNodeId}]),
 
     %%Try to join an existing game.
-    case join_game() of 
+    join_game(MyNodeId).
+    %%case join_game(MyNodeId) of 
 	%%If you joined a game, you will receive the game state from the current game.
-	{ok, _GameState, _HostList} -> 
-	    done;
+	%%{ok, _GameState, _HostList} -> 
+	%%    done;
 	%%If you can't join the game, you start a new game and become a leader.
-	fail -> 
-	    become_leader(MyId)
-    end.
+	%%fail -> 
+	%%    become_leader(MyId)
+    %%end.
 
 become_leader(MyId) ->
     clock:start(),
@@ -56,7 +56,7 @@ become_leader(MyId) ->
 %%   or start a new game
 %%
 %% @ret should return fail if it fails
-join_game() ->
+join_game(MyNodeId) ->
     {ServerHostAddress, ServerPort} = get_server_details(),
     %% get game list
     GameList = send_message_to_game_server(ServerHostAddress, ServerPort, {get, game_list}),
@@ -82,13 +82,14 @@ join_game() ->
                             fail;
                         %% try to join the game
                         {GameId, Name, NodeList} ->
-                            case attempt_to_join_game(GameInfo) of
-                                fail ->
-                                    fail;
+                            attempt_to_join_game(MyNodeId, GameInfo)
+                            %%case attempt_to_join_game(MyNodeId, GameInfo) of
+                             %%   fail ->
+                             %%       fail;
                                 %% return game state and host list
-                                {GameState, HostList} ->
-                                    {ok, GameState, HostList}
-                            end
+                             %%   {GameState, HostList} ->
+                             %%       {ok, GameState, HostList}
+                            %%end
                     end
             end
     end.
@@ -104,12 +105,19 @@ join_game() ->
 %%  else
 %%   you will receive (error, game_full)
 %%   close connections to node list
-attempt_to_join_game(GameInfo) ->
+attempt_to_join_game(MyNodeId, GameInfo) ->
     {GameId, Name, NodeList} = GameInfo,
-    fail.
+    NodeIdList = connect_to_nodes_in_list(NodeList),
+    lists:foreach(fun message_passer:make_player/1, NodeIdList),
+    message_passer:broadcast({game_manager, {hello, MyNodeId}}),
+                         
+    done.
+
+connect_to_nodes_in_list(NodeList) ->
+    [message_passer:connect(Host, Port) || {_PlayerId, Host, Port} <- NodeList]. 
 
 select_game([H|T]) ->
-    {GameID, Name, Length} = H,
+    {_GameID, _Name, Length} = H,
     case Length < 8 of
     true ->
         H;
@@ -140,10 +148,10 @@ stop() ->
     catch (message_passer:stop()).
 
 
-start_game_manager() ->
+start_game_manager(ManagerState) ->
     register(game_manager, self()),
     process_flag(trap_exit, true),
-    game_manager_loop(#manager_state{}).
+    game_manager_loop(ManagerState).
 
 try_to_add_new_player(NodeId) ->
     message_passer:get_lock(add_player),
@@ -159,9 +167,9 @@ try_to_add_new_player(NodeId) ->
 	false ->
 	    %% cannot add player
 	    message_passer:unicast(NodeId, {error, game_full})
-    end
+    end.
 
-game_manager_loop(ManagerState) ->
+game_manager_loop(#manager_state{gameid = MyNodeId, timeout = Timeout} = ManagerState) ->
     receive
 	{hello, NodeId} ->
 	    io:format("Received hello from ~p~n", [NodeId]),
@@ -181,4 +189,8 @@ game_manager_loop(ManagerState) ->
 	Any ->
 	    io:format("Invalid message ~p~n", [Any]),
 	    game_manager_loop(ManagerState)
+    after
+            Timeout ->
+            become_leader(MyNodeId),
+            game_manager_loop(ManagerState#manager_state{timeout = infinity})
     end.

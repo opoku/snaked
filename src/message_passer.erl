@@ -30,7 +30,10 @@
 		       pid_list = [],
 
 		       %% keeps track of the last message id received from each host
-		       msg_tracker = []
+		       msg_tracker = [],
+                       
+               %% a list of processes waiting on connect() call to receive the nodeId
+               connect_wait_queue = []
 		      }).
 
 start(Port, MyId) ->
@@ -65,8 +68,13 @@ unicast(NodeId, Msg) ->
     ok.
 
 connect(Host, Port) ->
-    message_passer ! {connect, Host, Port},
-    ok.
+    message_passer ! {connect, self(), Host, Port},
+    receive
+       {message_passer, {NodeId, {HostIP, HostPort}}} ->
+            NodeId;
+       {message_passer, error} ->
+            error
+    end.
 
 get_lock(OnResource) ->
     message_passer ! {getLock, self(), OnResource},
@@ -169,7 +177,7 @@ loop(ServerState) ->
 		{register, NodeId, Port} ->
 		    Ip = tcp_comm:get_host_ip(Pid),
 		    io:format("Registering nodeid ~p:~p~p~n", [NodeId, Ip, Port]),
-		    #server_state{registered_list = RegisteredList, msg_tracker = MessageTrackingList} = ServerState,
+		    #server_state{registered_list = RegisteredList, msg_tracker = MessageTrackingList, connect_wait_queue = ConnectWaitQueue} = ServerState,
 		    NewRegisteredList = case lists:keyfind(NodeId, #host_info.nodeid, RegisteredList) of
 					    #host_info{nodeid=NodeId} ->
 						%% node id already exists so tell new connection to select a new id
@@ -178,6 +186,12 @@ loop(ServerState) ->
 						RegisteredList;
 					    false ->
 						%% add node to registered list
+                        case lists:keyfind({Ip, Port}, 2, ConnectWaitQueue) of
+                            {Pid, {HostIP, HostPort}} ->
+                                Pid ! {message_passer, {NodeId, {HostIP, HostPort}}};
+                            false ->
+                                Pid ! {message_passer, error}
+                        end,
 						lists:keystore(NodeId, #host_info.nodeid, RegisteredList,#host_info{nodeid=NodeId, pid=Pid, host=Ip, port=Port})
 					end,
 		    NewMessageTrackingList = lists:keystore(NodeId, 1, MessageTrackingList, {NodeId, -1}),
@@ -216,10 +230,12 @@ loop(ServerState) ->
 	    io:format("Start Server~n"),
 	    tcp_comm:start_server(Port),
 	    loop(ServerState);
-	{connect, Host, Port} ->
-	    io:format("Request for connect~n"),
+	{connect, ConnectingNodeId, Host, Port} ->
+	    io:format("Request for connect from~p~n", [ConnectingNodeId]),
+        ConnectWaitQueue = ServerState#server_state.connect_wait_queue,
+        NewConnectWaitQueue = [{ConnectingNodeId, {Host, Port}}|ConnectWaitQueue],
 	    tcp_comm:start_client(Host,Port),
-	    loop(ServerState);
+	    loop(ServerState#server_state{connect_wait_queue=NewConnectWaitQueue});
 	{getinfo, Pid} ->
 	    #server_state{myid = Id, myport = Port} = ServerState,
 	    Pid ! {message_passer, {Id, Port}},
