@@ -1,7 +1,7 @@
 -module(game_manager).
 -compile([export_all]).
 
--include("game_defs.hrl").
+-define(MAX_PLAYERS, 8).
 
 -record(manager_state, {gameid, timeout = 5000}).
 
@@ -16,18 +16,21 @@ init(MyNodeId) ->
     %%Invoke message passer.
     ok = message_passer:start(DefaultPort, [], MyId),
 
+    register(game_manager, self()),
+    process_flag(trap_exit, true),
+
     spawn(game_manager, start_game_manager, [#manager_state{gameid = MyNodeId}]),
 
     %%Try to join an existing game.
-    join_game(MyNodeId).
-    %%case join_game(MyNodeId) of 
-	%%If you joined a game, you will receive the game state from the current game.
-	%%{ok, _GameState, _HostList} -> 
-	%%    done;
-	%%If you can't join the game, you start a new game and become a leader.
-	%%fail -> 
-	%%    become_leader(MyId)
-    %%end.
+    case join_game(MyNodeId) of 
+	{ok, GameState} ->
+	    %%If you joined a game, you will receive the game state from the current game.
+	    game_logic:update_game_state(GameState),
+	    game_manager_loop(#manager_state{gameid = MyNodeId});
+	fail -> 
+	    %%If you can't join the game, you start a new game and become a leader.
+	    become_leader(MyNodeId)
+    end.
 
 become_leader(MyId) ->
     clock:start(),
@@ -57,42 +60,11 @@ become_leader(MyId) ->
 %%
 %% @ret should return fail if it fails
 join_game(MyNodeId) ->
-    {ServerHostAddress, ServerPort} = get_server_details(),
     %% get game list
-    GameList = send_message_to_game_server(ServerHostAddress, ServerPort, {get, game_list}),
     %% select a game
-    case GameList of
-        %% there are no games going on, so cannot join the game.
-        [] ->
-            fail;
-        %% there are some games going on
-        %% TODO: present a UI to user to let him select the game
-        %% for now, we select the first game with length < 8.
-        GameList2 ->
-            SelectedGameId = select_game(GameList2),
-            case SelectedGameId of
-                fail ->
-                    fail;
-                SelectedGame ->
-                    %% now that we have selected the game, get information about the nodes from the server
-                    GameInfo = send_message_to_game_server(ServerHostAddress, ServerPort, {get, game, SelectedGame}),
-                    case GameInfo of
-                        %% could not find the game information on server
-                        {error, _Any} ->
-                            fail;
-                        %% try to join the game
-                        {GameId, Name, NodeList} ->
-                            attempt_to_join_game(MyNodeId, GameInfo)
-                            %%case attempt_to_join_game(MyNodeId, GameInfo) of
-                             %%   fail ->
-                             %%       fail;
-                                %% return game state and host list
-                             %%   {GameState, HostList} ->
-                             %%       {ok, GameState, HostList}
-                            %%end
-                    end
-            end
-    end.
+    put(id, MyNodeId),
+    GameList = send_message_to_game_server(get_server_info(), {get, game_list}),
+    select_next_game(GameList).
 
 %%5. broadcast to players (HELLO)
 %%6. wait for first reply (HI)
@@ -105,39 +77,47 @@ join_game(MyNodeId) ->
 %%  else
 %%   you will receive (error, game_full)
 %%   close connections to node list
-attempt_to_join_game(MyNodeId, GameInfo) ->
-    {GameId, Name, NodeList} = GameInfo,
+attempt_to_join_game({_GameId, _Name, NodeList} = GameInfo) ->
     NodeIdList = connect_to_nodes_in_list(NodeList),
     lists:foreach(fun message_passer:make_player/1, NodeIdList),
-    message_passer:broadcast({game_manager, {hello, MyNodeId}}),
-                         
-    done.
+    message_passer:broadcast({game_manager, {hello, get(id)}}),
+    join_loop(GameInfo, start).
 
 connect_to_nodes_in_list(NodeList) ->
     [message_passer:connect(Host, Port) || {_PlayerId, Host, Port} <- NodeList]. 
 
-select_game([H|T]) ->
-    {_GameID, _Name, Length} = H,
-    case Length < 8 of
-    true ->
-        H;
-    false ->
-        select_game(T)
+select_next_game([{GameId, _Name, Length} = FirstGame| RestGames]) when Length < 8 ->
+    %% now that we have selected the game, get information about the nodes from the server
+    case send_message_to_game_server(get_server_info(), {get, game, GameId}) of
+	%% could not find the game information on server
+	{error, Reason} ->
+	    io:format("Could not join game ~p : ~p", [FirstGame, Reason]),
+	    select_next_game(RestGames);
+	%% try to join the game
+	GameInfo ->
+	    io:format("Attempting to join game ~p~n", [GameId]),
+	    attempt_to_join_game(GameInfo)
     end;
-select_game([]) ->
+select_next_game([_FirstGame | RestOfGames]) ->
+    select_next_game(RestOfGames);
+select_next_game([]) ->
     fail.
 
-send_message_to_game_server(ServerHostAddress, ServerPort, Msg) ->
+send_message_to_game_server({ServerHostAddress, ServerPort}, Msg) ->
     game_server:gs_client(ServerHostAddress, ServerPort, Msg).
 
-get_server_details() ->
-    {Root, _Options} = filename:find_src(game_logic),
-    PathToConfigFile = filename:absname_join(filename:dirname(Root), "../resources/config.txt"),
-    io:format("config file path: ~p~n", [PathToConfigFile]),
-    {ok, [Configurations]} = file:consult(PathToConfigFile),
-    [ServerHostAddress|T] = Configurations,
-    [ServerPort|T2] = T,
-    {ServerHostAddress, ServerPort}.
+get_server_info() ->
+    case get(server_info) of
+	undefined ->
+	    {Root, _Options} = filename:find_src(game_logic),
+	    PathToConfigFile = filename:absname_join(filename:dirname(Root), "../resources/config.txt"),
+	    io:format("config file path: ~p~n", [PathToConfigFile]),
+	    {ok, [{_ServerHost, _ServerPort} = ServerInfo]} = file:consult(PathToConfigFile),
+	    put(server_info, ServerInfo),
+	    ServerInfo;
+	ServerInfo ->
+	    ServerInfo
+    end.
     
 broadcast_tick(Tick, NewFood) ->
     message_passer:broadcast({game_logic, {tick, Tick, NewFood}}).
@@ -154,43 +134,92 @@ start_game_manager(ManagerState) ->
     game_manager_loop(ManagerState).
 
 try_to_add_new_player(NodeId) ->
-    message_passer:get_lock(add_player),
     PlayerCount = game_logic:count_players(),
-    case PlayerCount < MAX_PLAYERS of
+    case PlayerCount < ?MAX_PLAYERS of
 	true ->
+	    game_manager ! {add_player, self(), NodeId},
+	    receive
+		{player_added, NodeId} ->
+		    io:format("Player ~p has been added so release the lock ~n", [NodeId]);
+		{error, Reason} ->
+		    io:format("Failed to add player: ~p~n", [Reason])
+	    end;
+	false ->
+	    %% cannot add player
+	    send_to_mp(NodeId, {error, game_full})
+    end.
+
+send_to_mp(NodeId, Msg) ->
+    message_passer:unicast(NodeId, {game_manager, Msg}).
+
+join_loop(GameInfo, start) ->
+    receive
+	{hi, NodeId} ->
+	    io:format("Received hi from ~p~n", [NodeId]),
+	    send_to_mp(NodeId, {join, get(id)}),
+	    join_loop(GameInfo, {connected, NodeId})
+    after
+	%% 10000 ->
+	infinity ->
+	    fail
+    end;
+join_loop(GameInfo, {connected, NodeId}) ->
+    receive
+	{started, game_logic} ->
+	    io:format("Received all the messages from nodes in the game~n"),
+	    game_logic:start(),
+	    send_to_mp(NodeId, {joined, get(id)}),
+	    join_loop(GameInfo, {joined, NodeId});
+	{error, Reason} ->
+	    io:format("Cannot join game: ~p~n", [Reason]),
+	    fail
+    end;
+join_loop(GameInfo, {joined, _NodeId}) ->
+    receive
+	{game_state, GameState} ->
+	    {ok, GameInfo, GameState}
+    end.
+
+
+game_manager_loop(#manager_state{gameid = MyNodeId} = ManagerState) ->
+    receive
+	{hello, NodeId} ->
+	    io:format("Received hello from ~p~n", [NodeId]),
+	    message_passer:unicast(NodeId, {hi, MyNodeId}),
+	    game_manager_loop(ManagerState);
+	{join, NodeId} ->
+	    io:format("Received join from ~p~n", [NodeId]),
+	    Pid = spawn_link(fun () ->
+				     message_passer:get_lock(add_player),
+				     try try_to_add_new_player(NodeId)
+				     after
+					 message_passer:release_lock(add_player)
+				     end
+			     end),
+	    put(NodeId, Pid),
+	    game_manager_loop(ManagerState);
+	{joined, NodeId} ->
+	    io:format("Received joinED from ~p~n", [NodeId]),
+	    GameState = game_logic:get_game_state(),
+	    send_to_mp(NodeId, {game_state, GameState}),
+	    %%release lock
+	    game_manager_loop(ManagerState);
+	{add_player, NodeId} ->
 	    %% we can add the player
 	    %% tell everyone to convert the player
 	    message_passer:broadcast({make_player, NodeId}),
 
 	    %% going to add the player to the game state with an empty position
-	    message_passer:broadcast({game_logic, {add_player, NodeId}});
-	false ->
-	    %% cannot add player
-	    message_passer:unicast(NodeId, {error, game_full})
-    end.
+	    message_passer:broadcast({game_logic, {add_player, NodeId}}),
 
-game_manager_loop(#manager_state{gameid = MyNodeId, timeout = Timeout} = ManagerState) ->
-    receive
-	{hello, NodeId} ->
-	    io:format("Received hello from ~p~n", [NodeId]),
-	    #manager_state{myid=MyId} = ManagerState,
-	    message_passer:unicast(NodeId, {hi, MyId}),
 	    game_manager_loop(ManagerState);
-	{join, NodeId} ->
-	    io:format("Received join from ~p~n", [NodeId]),
-	    spawn_link(fun () -> try_to_add_new_player(NodeId) end),
-	    game_manager_loop(ManagerState);
-	{joined, NodeId} ->
-	    io:format("Received joinED from ~p~n", [NodeId]),
-	    GameState = game_logic:get_game_state(),
-	    message_passer:unicast(NodeId, {game_logic, {add_game_state, GameState}}),
-	    %%release lock
+	{player_added, NodeId} ->
+	    %% this is sent by the game logic when the player is added
+	    Pid = get(NodeId),
+	    Pid ! {player_added, NodeId},
+	    erase(NodeId),
 	    game_manager_loop(ManagerState);
 	Any ->
 	    io:format("Invalid message ~p~n", [Any]),
 	    game_manager_loop(ManagerState)
-    after
-            Timeout ->
-            become_leader(MyNodeId),
-            game_manager_loop(ManagerState#manager_state{timeout = infinity})
     end.
