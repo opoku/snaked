@@ -10,7 +10,8 @@
        {socket, game_list = [], gameid = 0}).
 
 
-start(Port) ->
+start() ->
+    Port = get_server_port(),
     start_server(Port).
 
 start_server(Port) ->
@@ -19,6 +20,19 @@ start_server(Port) ->
 					 {reuseaddr, true},
 					 {active, true}]),
     spawn(game_server, server_loop, [Listen, #comm_state{}]).
+
+get_server_port() ->
+    case get(server_port) of
+	undefined ->
+	    {Root, _Options} = filename:find_src(game_server),
+	    PathToConfigFile = filename:absname_join(filename:dirname(Root), "../resources/server-config.txt"),
+	    io:format("config file path: ~p~n", [PathToConfigFile]),
+	    {ok, [_ServerHost,ServerPort]} = file:consult(PathToConfigFile),
+	    put(server_port, ServerPort),
+	    ServerPort;
+	ServerPort ->
+	    ServerPort
+    end.
 
 server_loop(Listen, CommState) ->
     io:format("Waiting for connection~n"),

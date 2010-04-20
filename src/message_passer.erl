@@ -70,10 +70,10 @@ unicast(NodeId, Msg) ->
 connect(Host, Port) ->
     message_passer ! {connect, self(), Host, Port},
     receive
-       {message_passer, {NodeId, {HostIP, HostPort}}} ->
+       {message_passer, {NodeId, {_HostIP, _HostPort}}} ->
             NodeId;
        {message_passer, error} ->
-            error
+            {error}
     end.
 
 get_lock(OnResource) ->
@@ -186,19 +186,36 @@ loop(ServerState) ->
 						RegisteredList;
 					    false ->
 						%% add node to registered list
-                        case lists:keyfind({Ip, Port}, 2, ConnectWaitQueue) of
-                            {Pid, {HostIP, HostPort}} ->
-                                Pid ! {message_passer, {NodeId, {HostIP, HostPort}}};
-                            false ->
-                                Pid ! {message_passer, error}
-                        end,
+						case lists:keyfind({Ip, Port}, 2, ConnectWaitQueue) of
+						    {Pid, {HostIP, HostPort}} ->
+							Pid ! {message_passer, {NodeId, {HostIP, HostPort}}};
+						    false ->
+							Pid ! {message_passer, error}
+						end,
 						lists:keystore(NodeId, #host_info.nodeid, RegisteredList,#host_info{nodeid=NodeId, pid=Pid, host=Ip, port=Port})
 					end,
 		    NewMessageTrackingList = lists:keystore(NodeId, 1, MessageTrackingList, {NodeId, -1}),
 		    loop(ServerState#server_state{registered_list = NewRegisteredList, msg_tracker = NewMessageTrackingList});
 		_Any ->
 		    io:format("recvdata ~p~n",[Data]),
-		    route_message(Data),
+		    case lists:keyfind(Pid, #host_info.pid, ServerState#server_state.registered_list) of
+			false ->
+			    %% should not happend
+			    io:format("I have been sent a network message from a process ~p I dont recognize~n", [Pid]);
+			#host_info{status=player} ->
+			    %% only route all messages from players
+			    route_message(Data);
+			#host_info{status=guest, nodeid=NodeId} ->
+			    %% only route two types of messages from guests
+			    case Data of
+				{game_manager, hello, NodeId} ->
+				    route_message(Data);
+				{game_manager, join, NodeId} ->
+				    route_message(Data);
+				_Any ->
+				    io:format("Dropping messsage ~p from guest ~p~n", [Data, NodeId])
+			    end
+		    end,
 		    loop(ServerState)
 	    end;
 	{comm_started, Pid} ->
@@ -232,8 +249,8 @@ loop(ServerState) ->
 	    loop(ServerState);
 	{connect, ConnectingNodeId, Host, Port} ->
 	    io:format("Request for connect from~p~n", [ConnectingNodeId]),
-        ConnectWaitQueue = ServerState#server_state.connect_wait_queue,
-        NewConnectWaitQueue = [{ConnectingNodeId, {Host, Port}}|ConnectWaitQueue],
+	    ConnectWaitQueue = ServerState#server_state.connect_wait_queue,
+	    NewConnectWaitQueue = [{ConnectingNodeId, {Host, Port}}|ConnectWaitQueue],
 	    tcp_comm:start_client(Host,Port),
 	    loop(ServerState#server_state{connect_wait_queue=NewConnectWaitQueue});
 	{getinfo, Pid} ->
@@ -278,7 +295,7 @@ loop(ServerState) ->
 	    %% 
 	    io:format("Processing Multicast message from ~p ~n", [McastMsg]),
 	    #server_state{myid=Me, timestamp=MyTimeStamp, acklist=PrevAckList, registered_list = RegisteredList, msg_tracker = MessageTrackingList} = ServerState,
-	    
+
 	    %%update message tracker
 	    {HostId, LastMId} = lists:keyfind(HostId, 1, MessageTrackingList),
 	    NewMessageTrackingList = case MId > LastMId of
@@ -373,7 +390,7 @@ loop(ServerState) ->
 		false ->
 		    ReplyList = [{lockReply, Node, MyNodeId} || {Node, _, _, _} <- RegisteredList],
 		    NewLockStateList = lists:keystore(ResourceId, 1, LockStateList,
-						       {ResourceId, released, queue:new(), ReplyList, Pid}),
+						      {ResourceId, released, queue:new(), ReplyList, Pid}),
 		    LockMessage = {lockRequest, ResourceId},
 		    message_passer ! {multicast,LockMessage},
 		    loop(ServerState#server_state{lock_state_list = NewLockStateList});
@@ -421,7 +438,7 @@ loop(ServerState) ->
 		{MyNodeId, released} ->
 		    %% this is me so change to wanted
 		    NewLockStateList = lists:keystore(ResourceId, 1, LockStateList,
-						       {ResourceId, {wanted, ReqTimeStamp}, RequestQueue, ReplyList, Pid}),
+						      {ResourceId, {wanted, ReqTimeStamp}, RequestQueue, ReplyList, Pid}),
 		    ReplyMessage = {lockReply,MyNodeId,HostId,ResourceId},
 		    message_passer ! {unicast,HostId,ReplyMessage},
 		    loop(ServerState#server_state{lock_state_list = NewLockStateList});
@@ -434,7 +451,7 @@ loop(ServerState) ->
 		    %% add the request to my request queue
 		    NewRequestQueue = queue:in(RequestMsg, RequestQueue),
 		    NewLockStateList = lists:keystore(ResourceId, 1, LockStateList,
-						       {ResourceId, LockState, NewRequestQueue, ReplyList, Pid}),
+						      {ResourceId, LockState, NewRequestQueue, ReplyList, Pid}),
 		    loop(ServerState#server_state{lock_state_list=NewLockStateList});
 		{_, {wanted, MyReqTimeStamp}} ->
 		    %% compare timestamps
@@ -448,7 +465,7 @@ loop(ServerState) ->
 			    %% a > b
 			    NewRequestQueue = queue:in(RequestMsg, RequestQueue),
 			    NewLockStateList = lists:keystore(ResourceId, 1, LockStateList,
-							       {ResourceId, LockState, NewRequestQueue, ReplyList, Pid}),
+							      {ResourceId, LockState, NewRequestQueue, ReplyList, Pid}),
 			    loop(ServerState#server_state{lock_state_list=NewLockStateList})
 		    end
 	    end;
@@ -469,7 +486,7 @@ loop(ServerState) ->
 		    loop(ServerState#server_state{lock_state_list = NewLockStateList});
 		_NotEmpty ->
 		    NewLockStateList = lists:keystore(ResourceId, 1, LockStateList,
-						       {ResourceId, LockState, RequestQueue, NewReplyList, ReqPid}),
+						      {ResourceId, LockState, RequestQueue, NewReplyList, ReqPid}),
 		    loop(ServerState#server_state{lock_state_list = NewLockStateList})
 	    end;
 
@@ -488,6 +505,15 @@ loop(ServerState) ->
 	    io:format("message_passer closing...~n");
 	{debug, Pid} ->
 	    Pid ! {message_passer, ServerState},
+	    loop(ServerState);
+	{host_info, Pid, NodeId} ->
+	    RegisteredList = ServerState#server_state.registered_list,
+	    case lists:keyfind(NodeId, #host_info.nodeid, RegisteredList) of
+		#host_info{host=Host, port=Port} ->
+		    Pid ! {message_passer, {NodeId, Host, Port}};
+		false ->
+		    Pid ! {message_passer, {error, {node_not_found, NodeId}}}
+	    end,
 	    loop(ServerState);
 	{broadcastping, Seq} ->
 	    MyId = ServerState#server_state.myid,
@@ -511,9 +537,9 @@ loop(ServerState) ->
 					io:format("Making ~p a player~n", [NodeId]),
 					HostInfo1 = HostInfo#host_info{status=player},
 					lists:keystore(NodeId, #host_info.nodeid, RegisteredList, HostInfo1);
-				    #host_info{status=player} = HostInfo ->
+				    #host_info{status=player} ->
 					io:format("~p is already a player~n", [NodeId]),
-					RegisteredList
+					RegisteredList;
 				    false ->
 					io:format("Player Id ~p is not found~n", [NodeId]),
 					RegisteredList
@@ -531,6 +557,13 @@ reload_message_passer() ->
 
 debug() ->
     message_passer ! {debug, self()},
+    receive
+	{message_passer, Any} ->
+	    Any
+    end.
+
+get_host_info(NodeId) ->
+    message_passer ! {host_info, self(), NodeId},
     receive
 	{message_passer, Any} ->
 	    Any

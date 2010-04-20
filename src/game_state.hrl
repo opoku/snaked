@@ -53,7 +53,7 @@
 	  position=queue:new(),
 
 	  %% the length of the snake
-	  length = 1,
+	  length = 0,
 	
 	  %% current score of the snake
 	  score = 0,
