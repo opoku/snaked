@@ -55,3 +55,41 @@ To start playing (Newbie)
    (b) sends the position to everyone in the tick message
 3. New player can start playing
 
+
+Failure Handling:
+---------------------
+Mutexes, Multicast, HostsList:
+1. Remove the dying node from the mutex's ack list & request list
+2. Remove the dying node from the multicast's ack list
+3. Also, Remove the node from the holdqueue,message tracker& registered list
+
+Game Logic:
+1. Remove the node from the snake's list of the game state & also from the
+   movesqueue
+
+ToDo:
+- remove form the leader queue
+- update Game Server:
+     - No. of nodes
+if the current node is VL:
+-  send out tick to everybody
+
+Update Vice Leader & leader
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+
+
+
+
+

@@ -165,6 +165,13 @@ game_loop (GameState, ReceivedMoveQueue) ->
 	    NewQueue = process_move_list(MoveList, Queue),
 	    NewReceivedMoveQueue = lists:keystore(SnakeId, 1, ReceivedMoveQueue, {SnakeId, NewQueue}),
 	    game_loop(GameState, NewReceivedMoveQueue)
+	    end;
+	{kill_snake, SnakeId} ->
+		%% kill snake => remove snake from all the data structures
+		#game_state{snakes = Snakes,_,_,_,_,_,_} = GameState,
+		NewSnakes = lists:keydelete(SnakeId, 1, Snakes),
+		NewReceivedMoveQueue = 	lists:keydelete(SnakeId, 1, ReceivedMoveQueue),
+		game_loop(GameState#game_state{snakes = NewSnakes}, NewReceivedMoveQueue)	
     end.
 
 %% we haven't received the gui events until now. now we just receive all of them an put

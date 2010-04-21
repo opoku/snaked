@@ -14,10 +14,17 @@
 start_client(Host, Port) ->
     spawn(tcp_comm, client_start, [Host, Port]).
 
+client_connect(Host, Port) ->
+    case gen_tcp:connect(Host, Port, [binary, {packet, 0}]) of
+	{ok, Socket}-> Socket;
+	{error, Reason}->io:format("Error on connect Socket ~p. Trying again~n", [Reason]), 
+		client_connect(Host, Port)
+    end.	
+
 client_start(Host, Port) ->
     message_passer ! {comm_started, self()},
-    {ok, Socket} = gen_tcp:connect(Host, Port, [binary, {packet, 0}]),
-    %% send your node id to the server
+    Socket = client_connect(Host, Port),		
+     %% send your node id to the server
     send_node_id(),
     comm_loop(#comm_state{socket=Socket}).
 
