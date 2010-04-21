@@ -1,8 +1,6 @@
 -module(game_manager).
 -compile([export_all]).
 
-
-
 start() ->
     spawn(game_manager, init, []).
 
@@ -16,7 +14,7 @@ init() ->
     %%Try to join an existing game.
     case join_game() of 
 	%%If you joined a game, you will receive the game state from the current game.
-	{ok, _GameState, _HostList} -> 
+	{ok, GameState, _HostList} -> 
 	    done;
 	%%If you can't join the game, you start a new game and become a leader.
 	fail -> 
