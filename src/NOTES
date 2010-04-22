@@ -76,6 +76,16 @@ if the current node is VL:
 
 Update Vice Leader & leader
 
+Leader Queue
+------------
+Game Manager:
+when a new player is added to the game, add him to leader queue
+take the snake list and sort and convert to a leader queue.
+
+when a node dies, modify the leader queue accordingly
+functions- addtoleaderqueue, removefromleaderqueue
+
+
 
 
 
