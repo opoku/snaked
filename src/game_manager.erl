@@ -3,6 +3,7 @@
 
 -define(MAX_PLAYERS, 8).
 
+-include("game_state.hrl").
 -record(manager_state, {nodeid, game_info, timeout = 5000, leader=false}).
 
 %% TODO: race condition where the game_server's list of nodes is out of date
@@ -22,7 +23,7 @@ init(MyNodeId) ->
 
     %%Try to join an existing game.
     case join_game() of 
-	{ok, {_GameId, _Name, _NodeList} = GameInfo, GameState} ->
+	{ok, GameInfo, GameState} ->
 	    %%If you joined a game, you will receive the game state from the current game.
 	    game_logic:update_game_state(GameState),
 	    game_manager_loop(#manager_state{nodeid = MyNodeId, game_info=GameInfo});
@@ -30,6 +31,9 @@ init(MyNodeId) ->
 	    %%If you can't join the game, you start a new game and become a leader.
 	    {_GameId, _Name, _NodeList} = GameInfo = create_new_game("DefaultName"),
 	    %%start_game(MyNodeId),
+	    clock:start(),
+	    game_logic:start(MyNodeId, GameInfo),
+	    game_logic:start_game(),
 	    io:format("Starting the game manager loop~n"),
 	    game_manager_loop(#manager_state{nodeid=MyNodeId, game_info=GameInfo, leader=true})
     end.
@@ -40,12 +44,8 @@ create_new_game(Name) ->
     {gameid, GameId} = send_message_to_game_server({set, add_game, Name}),
     {HostIp, Port} = message_passer:get_host_info(MyNodeId),
     {ok, player_added} = send_message_to_game_server({set, add_player, {GameId, {MyNodeId, HostIp, Port}}}),
-    {GameId, Name, [{MyNodeId, HostIp, Port}]}.
+    {GameId, Name, [MyNodeId]}.
     
-start_game(MyId) ->
-    clock:start(),
-    game_logic:start(MyId).
-
 
 is_leader() ->
     game_manager ! {check_for_leader, self()},
@@ -97,11 +97,11 @@ join_game() ->
 %%  else
 %%   you will receive (error, game_full)
 %%   close connections to node list
-attempt_to_join_game({_GameId, _Name, NodeList} = GameInfo) ->
+attempt_to_join_game({GameId, Name, NodeList}) ->
     NodeIdList = connect_to_nodes_in_list(NodeList),
     lists:foreach(fun message_passer:make_player/1, NodeIdList),
-    message_passer:broadcast({game_manager, {hello, get(id)}}),
-    join_loop(GameInfo, start).
+    broadcast_to_mp({hello, get(id)}),
+    join_loop({GameId, Name, NodeIdList}, start).
 
 connect_to_nodes_in_list(NodeList) ->
     [message_passer:connect(Host, Port) || {_PlayerId, Host, Port} <- NodeList]. 
@@ -163,6 +163,13 @@ try_to_add_new_player(NodeId) ->
     PlayerCount = game_logic:count_players(),
     case PlayerCount < ?MAX_PLAYERS of
 	true ->
+	    %% send a message telling the new player that he is being added so that he
+	    %% starts his gamelogic.
+	    send_to_mp(NodeId, {adding, get(id)}),
+	    ok = receive
+		     {ok, NodeId} ->
+			 ok
+		 end,
 	    game_manager ! {add_player, NodeId},
 	    receive
 		{player_added, NodeId} ->
@@ -185,7 +192,6 @@ join_loop(GameInfo, start) ->
     receive
 	{hi, NodeId} ->
 	    io:format("Received hi from ~p~n", [NodeId]),
-	    game_logic:start(get(id)),
 	    send_to_mp(NodeId, {join, get(id)}),
 	    join_loop(GameInfo, {connected, NodeId})
     after
@@ -195,6 +201,9 @@ join_loop(GameInfo, start) ->
     end;
 join_loop(GameInfo, {connected, NodeId}) ->
     receive
+	{adding, NodeId} ->
+	    game_logic:start(get(id), GameInfo),
+	    join_loop(GameInfo, {connected, NodeId});
 	{started, game_logic} ->
 	    io:format("Received all the messages from nodes in the game~n"),
 	    send_to_mp(NodeId, {joined, get(id)}),
@@ -227,6 +236,14 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 			     end),
 	    put(NodeId, Pid),
 	    game_manager_loop(ManagerState);
+	{ok, NodeId} ->
+	    case get(NodeId) of
+		undefined ->
+		    game_manager_loop(ManagerState);
+		Pid ->
+		    Pid ! {ok, NodeId},
+		    game_manager_loop(ManagerState)
+	    end;
 	{joined, NodeId} ->
 	    io:format("Received joinED from ~p~n", [NodeId]),
 	    GameState = game_logic:get_game_state(),
@@ -235,11 +252,12 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    game_manager_loop(ManagerState);
 	{add_player, NodeId} ->
 	    %% we can add the player
+	    %% going to add the player to the game state with an empty position
+	    message_passer:broadcast({game_logic, {add_player, NodeId}}),
+
 	    %% tell everyone to convert the player
 	    message_passer:broadcast({make_player, NodeId}),
 
-	    %% going to add the player to the game state with an empty position
-	    message_passer:broadcast({game_logic, {add_player, NodeId}}),
 
 	    game_manager_loop(ManagerState);
 	{player_added, NodeId} ->
@@ -264,7 +282,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	{make_leader, MyNodeId} ->
 	    %% If the nodeid is mine then make myself the leader
 	    game_manager_loop(ManagerState#manager_state{leader=true});
-	{make_leader, OtherNodeId} ->
+	{make_leader, _OtherNodeId} ->
 	    %% if the nodeid is not mine then make sure that I'm not the leader
 	    game_manager_loop(ManagerState#manager_state{leader=false});
 	{remove_leader, MyNodeId} ->
