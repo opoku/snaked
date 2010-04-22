@@ -12,7 +12,28 @@
 
 start() ->
     Port = get_server_port(),
-    start_server(Port).
+    Pid = start_server(Port),
+    register(game_server, Pid).
+
+stop() ->
+    connect_msg_disconnect("localhost", get_server_port(), {stop}),
+    done.
+
+reset() ->
+    connect_msg_disconnect("localhost", get_server_port(), {reset}),
+    done.
+
+debug() ->
+    connect_msg_disconnect("localhost", get_server_port(), {debug, self()}),
+    receive
+	{game_server_debug, Result} ->
+	    Result
+    end.
+	
+connect_msg_disconnect(Host, Port, Msg) ->
+    {ok, Socket} = gen_tcp:connect(Host, Port, [binary, {packet,0}]),
+    game_server ! Msg,
+    gen_tcp:close(Socket).
 
 start_server(Port) ->
     {ok, Listen} = gen_tcp:listen(Port, [binary,
@@ -34,6 +55,8 @@ get_server_port() ->
 	    ServerPort
     end.
 
+
+
 server_loop(Listen, CommState) ->
     io:format("Waiting for connection~n"),
     case gen_tcp:accept(Listen) of
@@ -42,10 +65,23 @@ server_loop(Listen, CommState) ->
 	    NewCommState = process_connection(Socket, CommState),
 	    gen_tcp:close(Socket),
 	    io:format("Socket ~p closed~n", [Socket]),
-	    server_loop(Listen, NewCommState);
+
+	    receive
+		{reset} ->
+		    io:format("Reseting server. Old state ~p~n", [NewCommState]),
+		    server_loop(Listen, #comm_state{});
+		{debug, Pid} ->
+		    Pid ! {game_server_debug, NewCommState},
+		    server_loop(Listen, NewCommState);
+		{stop} ->
+		    io:format("Stopping game server: Current state ~p~n", [NewCommState]),
+		    gen_tcp:close(Listen)
+	    after 0 ->
+		    server_loop(Listen, NewCommState)
+	    end;
 	%% if accept fails
 	{error, Reason} ->
-	    io:format("Error on listen Socket ~p(~p). Not relistening~n", [Listen, Reason]),
+	    io:format("Error on listen Socket ~p(~p). Relistening~n", [Listen, Reason]),
 	    server_loop(Listen, CommState)
     end.
 
@@ -119,7 +155,9 @@ process_connection(Socket, #comm_state{game_list = GameList, gameid = CurrentGam
 		Any ->
 		    gen_tcp:send(Socket, term_to_binary({error, {invalid_message, Any}})),
 		    CommState
-	    end
+	    end;
+	{tcp_closed, Socket} ->
+	    CommState
     end.
     
 
@@ -145,9 +183,15 @@ client_loop(Socket, DataList) ->
 	    list_to_binary(lists:reverse(DataList))
     end.
 	
+
+start_gs_interface () ->
+    nothing.
 	
 %% test_module() ->
 %%     %% make sure server is fresh beforehand
 %%     Tests = [{{get, game_list} , {game_list, []}},
 %% 	     {{get, game, 0}, {error, {game_not_found, 0}}}
 %% 	     ].
+
+
+%%    {port, 0}, {server_name,"httpd_test"}, {server_root,"/tmp"}, {document_root,"/tmp/htdocs"}, {bind_address, "localhost"}

@@ -35,8 +35,13 @@
 	  %% the snakeid of the current node
 	  myid,
       
-      %% new food that is generated - to be picked up by the clock whenever required
-      new_foods = []}).
+	  %% new food that is generated - to be picked up by the clock whenever required
+	  new_foods = [],
+
+	  %% new player positions
+	  new_player_positions = [],
+
+	}).
 
 -record(snake,
 	{

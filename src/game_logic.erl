@@ -55,21 +55,16 @@ stop() ->
 
 init(Id) ->
 	
-    io:format("Registered ~p as game_logic~n", [self()]),
-
-
-    Snakes = gen_snakes(),
+    %%Snakes = gen_snakes(),
     Obstacles = gen_obstacles(),
 
-    GameState = #game_state{snakes=Snakes, obstacles=Obstacles, myid = Id},
+    GameState = #game_state{obstacles=Obstacles, myid = Id},
     %process_flag(trap_exit, true),
     
     snake_ui:start(GameState#game_state.size),
     
-    #game_state{snakes=Snakes} = GameState,
-
     %% there is a queue for each snake
-    ReceivedMoveQueue = [{SnakeId, queue:new()} || #snake{id=SnakeId} <- Snakes],
+    ReceivedMoveQueue = [],
     game_loop(GameState, ReceivedMoveQueue).
 
 
@@ -118,9 +113,12 @@ send_event(Direction) ->
     game_logic ! {event, Direction},
     ok.
 
+%% TODO: game logic needs to start receiving the events and then notify the game manager
+%% when it has received all expected events.
+
 game_loop (GameState, ReceivedMoveQueue) ->
     io:format("starting game_loop~n"),
-    #game_state{clock=Clock, myid = MyId, foods = Foods} = GameState,
+    #game_state{clock=Clock, myid = MyId} = GameState,
     receive
 	{'EXIT', Pid, Reason} ->
 	    io:format("Pid ~p exited for reason ~p~n", [Pid, Reason]),
@@ -141,6 +139,11 @@ game_loop (GameState, ReceivedMoveQueue) ->
 	    apply(Mod, Func, [GameState, ReceivedMoveQueue]);
 	{die} ->
 	    io:format("Game Logic Dying~n");
+	{add_player, NodeId} ->
+	    io:format("Adding player ~p~n", [NodeId]),
+	    Snakes = [#snake{id=NodeId} |GameState#game_state.snakes],
+	    NewReceivedMoveQueue = [{NodeId, queue:new()} | ReceivedMoveQueue],
+	    game_loop(NewGameState#game_state{snakes=Snakes}, NewReceivedMoveQueue);
 	{tick, NewClock, Options} ->
 	    io:format ("Received tick for clock ~p old Clock ~p~n", [NewClock, Clock]),
 	    case Clock + 1 =:= NewClock of
@@ -157,24 +160,33 @@ game_loop (GameState, ReceivedMoveQueue) ->
 		    {NewGameState, NewReceivedMoveQueue} = advance_game(NewGameState0, ReceivedMoveQueue),
 		    %% We create new food here for use by the clock whenever it wants to use.
 
-		    %% TODO: only the leader should do this
-		    NewGameState1 = food:generate_foods(NewGameState),
-
-		    
+		    NewGameState1 = case game_manager:is_leader() of
+					true ->
+					    food:generate_foods(NewGameState);
+					false ->
+					    NewGameState
+				    end,
 		    game_loop(NewGameState1, NewReceivedMoveQueue);
 
 		_Any -> % ignore other 
 		    game_loop(GameState, ReceivedMoveQueue)
 	    end;
+	{move, SnakeId, []} ->
+	    %% an empty movelist should be ignored
+	    game_loop(GameState, ReceivedMoveQueue);
 	{move, SnakeId, MoveList} ->
 	    %% put this move into the queue for snakeid
 	    io:format("Snake ~p Move event received: ~p~n", [SnakeId, MoveList]),
-	    
-	    case {game_manager:is_leader(), lists:keyfind(SnakeId, #snake.id, GameState#game_state.snake)} of
+	    Snakes = GameState#game_state.snakes,
+	    case {game_manager:is_leader(), lists:keyfind(SnakeId, #snake.id, Snakes)} of
 		{yes, #snake{length=0}} ->
 		    %% zero length snake and i am the leader
-		    %% TODO: generate the snake position and add it to the tick options
-		    game_loop(GameState, ReceivedMoveQueue)
+		    NewSnakePosList = GameState#game_state.new_player_positions,
+		    NewSnakePosList1 = [generate_new_snake_position(SnakeId, length(NewSnakePosList)) | NewSnakePosList],
+		    game_loop(GameState#game_state{new_player_positions=NewSnakePosList1}, ReceivedMoveQueue);
+		{no, #snake{length=0}} ->
+		    %% ignore this move
+		    game_loop(GameState, ReceivedMoveQueue);
 		{_, #snake{length=L}} when L > 0 ->
 		    %% do nothing
 		    {SnakeId, Queue} = lists:keyfind(SnakeId, 1, ReceivedMoveQueue),
@@ -193,6 +205,15 @@ game_loop (GameState, ReceivedMoveQueue) ->
 		NewSnakes = lists:keydelete(SnakeId, 1, Snakes),
 		NewReceivedMoveQueue = 	lists:keydelete(SnakeId, 1, ReceivedMoveQueue),
 		game_loop(GameState#game_state{snakes = NewSnakes}, NewReceivedMoveQueue)	
+	    end
+    end.
+
+generate_new_snake_position(SnakeId, NumNewPlayers) ->
+    case NumNewPlayers rem 2 of
+	0 -> % even
+	    {SnakeId, [{3,1},{2,1},{1,1}], 'Right'};
+	1 -> % odd
+	    {SnakeId, [{1,5},{1,4},{1,3}], 'Down'}
     end.
 
 process_options(GameState, [{food, NewFoods}|Rest]) ->
@@ -211,13 +232,13 @@ process_options(GameState, []) ->
 update_new_snake_position(Snakes, SnakePositionList) ->
     update_new_snake_position(Snakes, SnakePositionList, []).
 
-update_new_snake_position(Snakes, [{SnakeId, Position} | Rest], Done) ->
+update_new_snake_position(Snakes, [{SnakeId, Position, Dir} | Rest], Done) ->
     case lists:keytake(SnakeId, #snake.id, Snakes) of
 	false ->
 	    update_new_snake_position(Snakes, Rest, Done);
 	{value, Snake, OtherSnakes} ->
 	    Length = length(Position),
-	    update_new_snake_position(OtherSnakes, Rest, [Snake#snake{position=queue:from_list(Position), length=Length} | Done])
+	    update_new_snake_position(OtherSnakes, Rest, [Snake#snake{position=queue:from_list(Position), length=Length, direction=Dir} | Done])
     end;
 update_new_snake_position(Snakes, [], Done) ->
     Snakes ++ Done.
@@ -415,12 +436,14 @@ move_snakes(#game_state{snakes=Snakes} = GS, MoveQueue) ->
 
 move_snakes([#snake{id=SnakeId, direction=D} = Snake | OtherSnakes], MoveQueue, DoneSnakes) ->
     {SnakeId, Queue} = lists:keyfind(SnakeId, 1, MoveQueue),
-    case out(Queue) of
-	{{value, Dir}, NewQueue} ->
+    case {D, out(Queue)} of
+	{undefined, _} ->
+	    move_snakes(OtherSnakes, MoveQueue, [Snake | DoneSnakes]);
+	{_, {{value, Dir}, NewQueue}} ->
 	    NewSnake = move_snake(Snake, Dir),
 	    NewMoveQueue = lists:keystore(SnakeId, 1, MoveQueue, {SnakeId, NewQueue}),
 	    move_snakes(OtherSnakes, NewMoveQueue, [NewSnake| DoneSnakes]);
-	{empty, Queue} ->
+	{_, {empty, Queue}} ->
 	    NewSnake = move_snake(Snake, D),
 	    move_snakes(OtherSnakes, MoveQueue, [NewSnake | DoneSnakes])
     end;
@@ -428,6 +451,16 @@ move_snakes([#snake{id=SnakeId, direction=D} = Snake | OtherSnakes], MoveQueue, 
 move_snakes([], MoveQueue, DoneSnakes) ->
     {DoneSnakes, MoveQueue}.
 
+%% ignore directions in the opposite direction
+move_snake(#snake{direction='Down'} = Snake, 'Up')->
+    Snake;
+move_snake(#snake{direction='Up'} = Snake, 'Down')->
+    Snake;
+move_snake(#snake{direction='Left'} = Snake, 'Right')->
+    Snake;
+move_snake(#snake{direction='Right'} = Snake, 'Left')->
+    Snake;
+%% actually move the snake
 move_snake(#snake{position=Q, length=L} = Snake, D) ->
     Fun = move_snake_function(D),
     Q1 = add_to_front(Fun(front(Q)), Q),

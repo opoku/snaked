@@ -3,7 +3,7 @@
 
 -define(MAX_PLAYERS, 8).
 
--record(manager_state, {nodeid, game_info, timeout = 5000}).
+-record(manager_state, {nodeid, game_info, timeout = 5000, leader=false}).
 
 %% TODO: race condition where the game_server's list of nodes is out of date
 
@@ -16,24 +16,26 @@ init(MyNodeId) ->
     DefaultPort = 5555,
     %%Invoke message passer.
     
-    ok = message_passer:start(DefaultPort, MyNodeId, []),
+    message_passer:start(DefaultPort, MyNodeId, []),
     register(game_manager, self()),
     process_flag(trap_exit, true),
 
     %%Try to join an existing game.
-    case join_game(MyNodeId) of 
+    case join_game() of 
 	{ok, {_GameId, _Name, _NodeList} = GameInfo, GameState} ->
 	    %%If you joined a game, you will receive the game state from the current game.
 	    game_logic:update_game_state(GameState),
 	    game_manager_loop(#manager_state{nodeid = MyNodeId, game_info=GameInfo});
 	fail -> 
 	    %%If you can't join the game, you start a new game and become a leader.
-	    {GameId, Name, NodeList} = GameInfo = create_new_game("DefaultName"),
-	    start_game(MyNodeId),
-	    game_manager_loop(#manager_state{nodeid=MyNodeId, game_info=GameInfo})
+	    {_GameId, _Name, _NodeList} = GameInfo = create_new_game("DefaultName"),
+	    %%start_game(MyNodeId),
+	    io:format("Starting the game manager loop~n"),
+	    game_manager_loop(#manager_state{nodeid=MyNodeId, game_info=GameInfo, leader=true})
     end.
 
 create_new_game(Name) ->
+    io:format("Creating a new game ~p~n", [Name]),
     MyNodeId = get(id),
     {gameid, GameId} = send_message_to_game_server({set, add_game, Name}),
     {HostIp, Port} = message_passer:get_host_info(MyNodeId),
@@ -43,6 +45,17 @@ create_new_game(Name) ->
 start_game(MyId) ->
     clock:start(),
     game_logic:start(MyId).
+
+
+is_leader() ->
+    game_manager ! {check_for_leader, self()},
+    receive
+	Result ->
+	    Result
+    end.
+
+make_leader(NodeId) ->
+    broadcast_to_mp({make_leader, NodeId}).
 
 %%Newbie
 %%-------
@@ -67,10 +80,10 @@ start_game(MyId) ->
 %%   or start a new game
 %%
 %% @ret should return fail if it fails
-join_game(MyNodeId) ->
+join_game() ->
     %% get game list
     %% select a game
-    GameList = send_message_to_game_server({get, game_list}),
+    {game_list, GameList} = send_message_to_game_server({get, game_list}),
     select_next_game(GameList).
 
 %%5. broadcast to players (HELLO)
@@ -108,6 +121,7 @@ select_next_game([{GameId, _Name, Length} = FirstGame| RestGames]) when Length <
 select_next_game([_FirstGame | RestOfGames]) ->
     select_next_game(RestOfGames);
 select_next_game([]) ->
+    io:format("No games left~n"),
     fail.
 
 send_message_to_game_server(Msg) ->
@@ -164,10 +178,14 @@ try_to_add_new_player(NodeId) ->
 send_to_mp(NodeId, Msg) ->
     message_passer:unicast(NodeId, {game_manager, Msg}).
 
+broadcast_to_mp(Msg) ->
+    message_passer:broadcast({game_manager, Msg}).
+
 join_loop(GameInfo, start) ->
     receive
 	{hi, NodeId} ->
 	    io:format("Received hi from ~p~n", [NodeId]),
+	    game_logic:start(get(id)),
 	    send_to_mp(NodeId, {join, get(id)}),
 	    join_loop(GameInfo, {connected, NodeId})
     after
@@ -179,7 +197,6 @@ join_loop(GameInfo, {connected, NodeId}) ->
     receive
 	{started, game_logic} ->
 	    io:format("Received all the messages from nodes in the game~n"),
-	    game_logic:start(),
 	    send_to_mp(NodeId, {joined, get(id)}),
 	    join_loop(GameInfo, {joined, NodeId});
 	{error, Reason} ->
@@ -197,7 +214,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
     receive
 	{hello, NodeId} ->
 	    io:format("Received hello from ~p~n", [NodeId]),
-	    message_passer:unicast(NodeId, {hi, MyNodeId}),
+	    send_to_mp(NodeId, {hi, MyNodeId}),
 	    game_manager_loop(ManagerState);
 	{join, NodeId} ->
 	    io:format("Received join from ~p~n", [NodeId]),
@@ -241,6 +258,18 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 		    io:format("Add player failed ~p~n", [Reason]),
 		    game_manager_loop(ManagerState)
 	    end;
+	{check_for_leader, Pid} ->
+	    Pid ! ManagerState#manager_state.leader,
+	    game_manager_loop(ManagerState);
+	{make_leader, MyNodeId} ->
+	    %% If the nodeid is mine then make myself the leader
+	    game_manager_loop(ManagerState#manager_state{leader=true});
+	{make_leader, OtherNodeId} ->
+	    %% if the nodeid is not mine then make sure that I'm not the leader
+	    game_manager_loop(ManagerState#manager_state{leader=false});
+	{remove_leader, MyNodeId} ->
+	    %% this also makes sure that im not the leader
+	    game_manager_loop(ManagerState#manager_state{leader=false});
 	Any ->
 	    io:format("Invalid message ~p~n", [Any]),
 	    game_manager_loop(ManagerState)

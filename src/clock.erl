@@ -40,6 +40,11 @@ get_new_foods(Tick) ->
 	_ -> []
     end.
 
+get_new_player_positions() ->
+    GameState = game_logic:get_game_state(),
+    GameState#game_state.new_player_positions.
+
+
 loop(Time, Tick) ->
     receive
 	{Pid, stop} ->
@@ -55,7 +60,7 @@ loop(Time, Tick) ->
 	    case game_manager:is_leader() of
 		true ->
 		    %% Generate food every FOOD_GENERATION_INTERVAL.
-		    Options = case game_logic:get_new_player_positions() of % each is {SnakeId, Position(a list of coords)}
+		    Options = case get_new_player_positions() of % each is {SnakeId, Position(a list of coords)}
 				  [] -> [];
 				  L -> [{newpos, L}]
 			      end,

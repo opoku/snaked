@@ -41,16 +41,16 @@ start(Port, MyId) ->
 
 start(Port, MyId, HostList) ->
     Pid = spawn_link(message_passer, server, [Port, MyId]),
-    Pid ! {listen, Port},
-    lists:foreach(fun ({Host, HostPort}) -> Pid ! {connect, Host, HostPort} end, [{"localhost", Port}| HostList]),
-    ok.
+    register(message_passer, Pid),
+    message_passer ! {listen, Port},
+    lists:foreach(fun ({Host, HostPort}) -> connect(Host, HostPort) end, [{"localhost", Port}| HostList]),
+    Pid.
     
 stop() ->
     kill_comm_processes(),
     message_passer ! {die}.
 
 server(Port, MyId) ->
-    register(message_passer, self()),
     %% don't die when you receive exit messages from your comms
     process_flag(trap_exit, true),
     loop(#server_state{myid = MyId, myport = Port}).
@@ -129,11 +129,10 @@ compare({MyId1, NwTimeStamp1}, {MyId2,NwTimeStamp2}) ->
 %% game_logic
 route_message(Msg) ->
     case Msg of
- 	{game_logic, Body} ->
-	    io:format("matched game_logic so forwarding ~p~n", [Body]),
- 	    game_logic ! Body;
- 	{game_manager, Body} ->
- 	    game_manager ! Body;
+	{game_logic, Body} ->
+	    game_logic ! Body;
+	{game_manager, Body} ->
+	    game_manager ! Body;
 	_ ->
 	    message_passer ! Msg
     end.
@@ -279,7 +278,7 @@ loop(ServerState) ->
 	{multicast, Msg} ->
 	    %% reliable multicast
 	    io:format("Sending multicast message : ~p~n", [Msg]),
-	    RegisteredList = ServerState#server_state.registered_list,
+	    RegisteredList = lists:filter(fun is_player/1, ServerState#server_state.registered_list),
 	    TimeStamp = ServerState#server_state.timestamp,
 	    MsgId = ServerState#server_state.msgid,
  	    NewMsgId = MsgId + 1,
@@ -313,7 +312,7 @@ loop(ServerState) ->
 				    MyTimeStamp + 1
 			    end,
 
-	    AckList = [{ack,NodeId,HostId,MId} || {NodeId, _Pid,_Ip,_Port} <- RegisteredList],
+	    AckList = [{ack,NodeId,HostId,MId} || #host_info{nodeid=NodeId,status=Status} <- RegisteredList, Status =:= player],
 	    AllAckList = AckList ++ PrevAckList,
 	    %% send your acks
 	    message_passer:broadcast({ack,Me,HostId,MId}),
@@ -388,7 +387,7 @@ loop(ServerState) ->
 	    RegisteredList = ServerState#server_state.registered_list,
 	    case lists:keyfind(ResourceId, 1, LockStateList) of
 		false ->
-		    ReplyList = [{lockReply, Node, MyNodeId} || {Node, _, _, _} <- RegisteredList],
+		    ReplyList = [{lockReply, Node, MyNodeId} || #host_info{nodeid=Node,status=Status} <- RegisteredList, Status=player],
 		    NewLockStateList = lists:keystore(ResourceId, 1, LockStateList,
 						      {ResourceId, released, queue:new(), ReplyList, Pid}),
 		    LockMessage = {lockRequest, ResourceId},
