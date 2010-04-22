@@ -40,9 +40,10 @@ Handler
 To add player (handler)
 ------------------------
 1. Tell everyone to make guest player into joined:
-   - tell MP to convert Guest connection to joined connection
+   - tell MP to convert Guest connection to joined connection, 
    - tell GL to add a plyer to the GameState and set (a) postion to empty
      	     	      	       	   	     	     (b) set player type to joined
+     	     	      	       	  
 2. Recv (JOINED) msg from newbie
 3. reply (Ok, gamestate) to newbie
 4. Add player to game server
@@ -51,8 +52,8 @@ To start playing (Newbie)
 ---------------------------
 1. Press a key to send non-null event to everyone
 2. Leader notices and 
-   (a) generates position for newbie
-   (b) sends the position to everyone in the tick message
+   (a) generates position,priority for newbie
+   (b) sends the position,priority to everyone in the tick message
 3. New player can start playing
 
 
@@ -66,24 +67,25 @@ Mutexes, Multicast, HostsList:
 Game Logic:
 1. Remove the node from the snake's list of the game state & also from the
    movesqueue
+   
+forming the Leader Queue
+--------------------------
+Game Manager:
+when a new player is added to the game, add him to leader queue
+take the snake list and sort and convert to a leader queue.
 
-ToDo:
+when a snake dies(through game play, not crash), modify the leader queue accordingly
 - remove form the leader queue
-- update Game Server:
-     - No. of nodes
+
 if the current node is VL:
 -  send out tick to everybody
 
 Update Vice Leader & leader
 
-Leader Queue
-------------
-Game Manager:
-when a new player is added to the game, add him to leader queue
-take the snake list and sort and convert to a leader queue.
+ToDo:
+- update Game Server:
+     - No. of nodes
 
-when a node dies, modify the leader queue accordingly
-functions- addtoleaderqueue, removefromleaderqueue
 
 
 

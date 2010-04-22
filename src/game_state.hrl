@@ -66,7 +66,7 @@
 	  %% No. of lives granted to each snake
 	  lives = 5,
 	  
-	  priority
+	  priority = 0
 	
 	}).
 

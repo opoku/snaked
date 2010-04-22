@@ -3,7 +3,7 @@
 
 -define(MAX_PLAYERS, 8).
 
--record(manager_state, {nodeid, game_info, timeout = 5000, leader=false}).
+-record(manager_state, {nodeid, game_info, timeout = 5000, leader=false, leader_queue = queue:new()}).
 
 %% TODO: race condition where the game_server's list of nodes is out of date
 
@@ -25,13 +25,21 @@ init(MyNodeId) ->
 	{ok, {_GameId, _Name, _NodeList} = GameInfo, GameState} ->
 	    %%If you joined a game, you will receive the game state from the current game.
 	    game_logic:update_game_state(GameState),
-	    game_manager_loop(#manager_state{nodeid = MyNodeId, game_info=GameInfo});
+		%% TODO: clarify if NodeId = SnakeId??
+		%% TODO: create the leader queue based on the priority of the snakes in the snakeslists (sort snakelist)
+		Snakes = GameState#game_state.snakes,
+		SortedSnakes = lists:sort(fun compare_priority/2, Snakes),
+		LeaderQueue = queue:from_list(SortedSnakes),
+	    game_manager_loop(#manager_state{nodeid = MyNodeId, game_info=GameInfo, leader_queue = LeaderQueue});
 	fail -> 
 	    %%If you can't join the game, you start a new game and become a leader.
 	    {_GameId, _Name, _NodeList} = GameInfo = create_new_game("DefaultName"),
+		%% TODO: create a new leader queue!! add priority when you start the new game
+		LeaderQueue = #manager_state.leader_queue,
+		NewLeaderQueue = queue:in(MyNodeId, LeaderQueue),
 	    %%start_game(MyNodeId),
 	    io:format("Starting the game manager loop~n"),
-	    game_manager_loop(#manager_state{nodeid=MyNodeId, game_info=GameInfo, leader=true})
+	    game_manager_loop(#manager_state{nodeid=MyNodeId, game_info=GameInfo, leader=true, leader_queue = NewLeaderQueue})
     end.
 
 create_new_game(Name) ->
@@ -46,7 +54,6 @@ start_game(MyId) ->
     clock:start(),
     game_logic:start(MyId).
 
-
 is_leader() ->
     game_manager ! {check_for_leader, self()},
     receive
@@ -56,6 +63,27 @@ is_leader() ->
 
 make_leader(NodeId) ->
     broadcast_to_mp({make_leader, NodeId}).
+
+add_to_leader_queue(AddedSnakes) ->
+	game_manager ! {add_to_leader_queue, AddedSnakes}.
+
+update_leader_queue(LeaderQueue, {SnakeId, _Position, _Dir} | OtherAddedSnakes) ->
+	NewLeaderQueue = queue:in(SnakeId, LeaderQueue),
+	update_leader_queue(NewLeaderQueue, OtherAddedSnakes).
+update_leader_queue(LeaderQueue, []) ->
+	LeaderQueue.
+
+compare_priority({_Id1, _Dir1, _Pos1, _Len1, _Score1, _Lives1, P1}, {_Id2, _Dir2, _Pos2, _Len2, _Score2, _Lives2, P2}) ->
+	case P1 < P2 of
+		true -> 
+			true;
+		false ->
+			false
+	end.
+
+remove_from_leader_queue(SnakeId) ->
+	game_manager ! {remove_from_leader_queue, SnakeId}.
+
 
 %%Newbie
 %%-------
@@ -153,7 +181,6 @@ stop() ->
     catch (game_logic:stop()),
     catch (message_passer:stop()).
 
-
 start_game_manager(ManagerState) ->
     register(game_manager, self()),
     process_flag(trap_exit, true),
@@ -209,7 +236,6 @@ join_loop(GameInfo, {joined, _NodeId}) ->
 	    {ok, GameInfo, GameState}
     end.
 
-
 game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
     receive
 	{hello, NodeId} ->
@@ -258,18 +284,47 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 		    io:format("Add player failed ~p~n", [Reason]),
 		    game_manager_loop(ManagerState)
 	    end;
+	{add_to_leader_queue, AddedSnakes} ->
+		LeaderQueue = ManagerState#manager_state.leader_queue,
+		NewLeaderQueue = update_leader_queue(LeaderQueue, AddedSnakes),
+		game_manager_loop(ManagerState#manager_state{leader_queue = NewLeaderQueue});
 	{check_for_leader, Pid} ->
 	    Pid ! ManagerState#manager_state.leader,
 	    game_manager_loop(ManagerState);
 	{make_leader, MyNodeId} ->
 	    %% If the nodeid is mine then make myself the leader
-	    game_manager_loop(ManagerState#manager_state{leader=true});
+		game_manager_loop(ManagerState#manager_state{leader=true});
 	{make_leader, OtherNodeId} ->
-	    %% if the nodeid is not mine then make sure that I'm not the leader
+		%% if the nodeid is not mine then make sure that I'm not the leader
 	    game_manager_loop(ManagerState#manager_state{leader=false});
 	{remove_leader, MyNodeId} ->
 	    %% this also makes sure that im not the leader
-	    game_manager_loop(ManagerState#manager_state{leader=false});
+		%% remove myself from the leader queue
+		game_manager_loop(ManagerState#manager_state{leader=false});
+	{remove_from_leader_queue, NodeId} ->
+		LeaderQueue = ManagerState#manager_state.leader_queue,
+		case queue:head(LeaderQueue) of
+			NodeId ->
+				case queue:out(LeaderQueue) of
+					{{value, SnakeId}, NewLeaderQueue} ->
+						io:format("SnakeId removed from the head of leaderqueue ~p: ~p~n", [SnakeId, NewLeaderQueue]);
+					{empty, LeaderQueue} ->
+							io:format("empty leaderqueue ~p~n", [LeaderQueue]),
+							NewLeaderQueue = LeaderQueue
+				end,	
+				%% send remove_leader and make_leader to self()
+				Pid ! {remove_leader, NodeId},
+				NewLeaderId = queue:head(NewLeaderQueue),
+				Pid ! {make_leader, NewLeaderId};
+				%% send remove_player to game_server : Ask Osei, where is the Player being created??
+				send_message_to_game_server({set, remove_player, Player})
+			OtherNodeId ->
+				%% convert to queue to list, remove NodeId, and convert back to queue
+				LeaderList = queue:to_list(LeaderQueue),
+				NewLeaderList = lists:delete(NodeId, LeaderList),
+				NewLeaderQueue = queue:from_list(NewLeaderList)
+		end,
+		game_manager_loop(ManagerState#manager_state.leader_queue = NewLeaderQueue);
 	Any ->
 	    io:format("Invalid message ~p~n", [Any]),
 	    game_manager_loop(ManagerState)

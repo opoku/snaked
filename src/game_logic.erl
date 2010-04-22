@@ -57,8 +57,9 @@ init(Id) ->
 	
     %%Snakes = gen_snakes(),
     Obstacles = gen_obstacles(),
-
-    GameState = #game_state{obstacles=Obstacles, myid = Id},
+	Priority = #game_state.priority,
+	NewPriority = update_priority(Priority),
+    GameState = #game_state{obstacles=Obstacles, myid = Id, priority = NewPriority},
     %process_flag(trap_exit, true),
     
     snake_ui:start(GameState#game_state.size),
@@ -66,7 +67,6 @@ init(Id) ->
     %% there is a queue for each snake
     ReceivedMoveQueue = [],
     game_loop(GameState, ReceivedMoveQueue).
-
 
 gen_snakes() ->
     Pos1 = in({10,10}, queue:new()),
@@ -87,6 +87,25 @@ gen_obstacles() ->
     io:format("path: ~p~n", [PathToBorder]),
     {ok, [Border]} = file:consult(PathToBorder),
     [#object{type=obstacle, position = Border}].
+
+update_priority(Priority) ->
+	NewPriority = Priority + 1.
+
+find_max_priority(Snake | OtherSnakes) ->
+	find_max_priority(OtherSnakes, Snake).
+
+find_max_priority(NewSnake | OtherSnakes, Snake) ->
+	P1 = NewSnake#snake.priority,
+	P2 = Snake#snake.priority,
+	
+	if P1 > P2 ->
+		   Snake = NewSnake;
+	   true ->
+		   Snake = Snake
+	end,
+	find_max_priority(OtherSnakes,Snake);
+find_max_priority([], Snake) ->
+	Priority = Snake#snake.priority.
 
 debug() ->
     game_logic ! {self(), get_state},
@@ -155,6 +174,7 @@ game_loop (GameState, ReceivedMoveQueue) ->
 		    
 		    %% two possisble options so far: new food and new player positions.
 		    %% They are indexed in the options list by the atoms food and newpos
+			%% TODO Ask Osei: where is the new player position being indexed in the options list??
 		    NewGameState0 = process_options(GameState, Options),
 
 		    {NewGameState, NewReceivedMoveQueue} = advance_game(NewGameState0, ReceivedMoveQueue),
@@ -171,6 +191,7 @@ game_loop (GameState, ReceivedMoveQueue) ->
 		_Any -> % ignore other 
 		    game_loop(GameState, ReceivedMoveQueue)
 	    end;
+	%% TODO: check if we have received move events from all the snakes in the list
 	{move, SnakeId, []} ->
 	    %% an empty movelist should be ignored
 	    game_loop(GameState, ReceivedMoveQueue);
@@ -181,7 +202,8 @@ game_loop (GameState, ReceivedMoveQueue) ->
 	    case {game_manager:is_leader(), lists:keyfind(SnakeId, #snake.id, Snakes)} of
 		{yes, #snake{length=0}} ->
 		    %% zero length snake and i am the leader
-		    NewSnakePosList = GameState#game_state.new_player_positions,
+			%% TODO: Think/Ask, can we generate priorities along with snake positions ??
+		    NewSnakePosList = GameState#game_state.new_player_positions, 
 		    NewSnakePosList1 = [generate_new_snake_position(SnakeId, length(NewSnakePosList)) | NewSnakePosList],
 		    game_loop(GameState#game_state{new_player_positions=NewSnakePosList1}, ReceivedMoveQueue);
 		{no, #snake{length=0}} ->
@@ -224,7 +246,9 @@ process_options(GameState, [{newpos, SnakePosList} | Rest]) ->
     %% coordinates
     #game_state{snakes=Snakes} = GameState,
     %% update snake position for each new snake
-    NewSnakes = update_new_snake_position(Snakes, SnakePosList),
+    {NewSnakes, AddedSnakes} = update_new_snake_position(Snakes, SnakePosList),
+	%% send message to the game manager to add players to the leader queue
+	game_manager:add_to_leader_queue(AddedSnakes),
     process_options(GameState#game_state{snakes=NewSnakes}, Rest);
 process_options(GameState, []) ->
     GameState.
@@ -238,10 +262,13 @@ update_new_snake_position(Snakes, [{SnakeId, Position, Dir} | Rest], Done) ->
 	    update_new_snake_position(Snakes, Rest, Done);
 	{value, Snake, OtherSnakes} ->
 	    Length = length(Position),
-	    update_new_snake_position(OtherSnakes, Rest, [Snake#snake{position=queue:from_list(Position), length=Length, direction=Dir} | Done])
+		Priority = find_max_priority(Snakes),
+		NewPriority = update_priority(Priority),
+		%% TODO: set priority for the new added snakes -- loop thru snakes and find the max priority, new player priority is 1 more than max priority
+	    update_new_snake_position(OtherSnakes, Rest, [Snake#snake{position=queue:from_list(Position), length=Length, direction=Dir, priority = NewPriority} | Done])
     end;
 update_new_snake_position(Snakes, [], Done) ->
-    Snakes ++ Done.
+    {Snakes ++ Done, Done}.
 
 %% we haven't received the gui events until now. now we just receive all of them an put
 %% them in a list in the order they were sent.
@@ -333,6 +360,8 @@ process_dead_snakes([DeadSnake | OtherDeadSnakes],DeadSnakes1,RegeneratedSnakes,
 	false ->
 	    Results1 = [{killed,SnakeId} | Results],
 	    DeadSnakes2 = [DeadSnake | DeadSnakes1],
+		%% TODO: remove from the leader queue, the snakes that are killed
+		game_manager:remove_from_leader_queue(SnakeId),
 	    process_dead_snakes(OtherDeadSnakes,DeadSnakes2,RegeneratedSnakes,Results1)
     end;
 
