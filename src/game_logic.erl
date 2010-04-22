@@ -141,7 +141,7 @@ game_loop (GameState, ReceivedMoveQueue) ->
 	    apply(Mod, Func, [GameState, ReceivedMoveQueue]);
 	{die} ->
 	    io:format("Game Logic Dying~n");
-	{tick, NewClock, NewFoods} ->
+	{tick, NewClock, Options} ->
 	    io:format ("Received tick for clock ~p old Clock ~p~n", [NewClock, Clock]),
 	    case Clock + 1 =:= NewClock of
 		true ->
@@ -149,10 +149,18 @@ game_loop (GameState, ReceivedMoveQueue) ->
 		    MoveEvents = receive_all_events(MyId),
 		    %% always broadcast the events even if the movelist is empty
 		    message_passer:broadcast(MoveEvents),
-		    NewGameState0 = GameState#game_state{foods = Foods ++ NewFoods},
+		    
+		    %% two possisble options so far: new food and new player positions.
+		    %% They are indexed in the options list by the atoms food and newpos
+		    NewGameState0 = process_options(GameState, Options),
+
 		    {NewGameState, NewReceivedMoveQueue} = advance_game(NewGameState0, ReceivedMoveQueue),
 		    %% We create new food here for use by the clock whenever it wants to use.
+
+		    %% TODO: only the leader should do this
 		    NewGameState1 = food:generate_foods(NewGameState),
+
+		    
 		    game_loop(NewGameState1, NewReceivedMoveQueue);
 
 		_Any -> % ignore other 
@@ -160,11 +168,24 @@ game_loop (GameState, ReceivedMoveQueue) ->
 	    end;
 	{move, SnakeId, MoveList} ->
 	    %% put this move into the queue for snakeid
-	    io:format("Move Called~n"),
-	    {SnakeId, Queue} = lists:keyfind(SnakeId, 1, ReceivedMoveQueue),
-	    NewQueue = process_move_list(MoveList, Queue),
-	    NewReceivedMoveQueue = lists:keystore(SnakeId, 1, ReceivedMoveQueue, {SnakeId, NewQueue}),
-	    game_loop(GameState, NewReceivedMoveQueue)
+	    io:format("Snake ~p Move event received: ~p~n", [SnakeId, MoveList]),
+	    
+	    case {game_manager:is_leader(), lists:keyfind(SnakeId, #snake.id, GameState#game_state.snake)} of
+		{yes, #snake{length=0}} ->
+		    %% zero length snake and i am the leader
+		    %% TODO: generate the snake position and add it to the tick options
+		    game_loop(GameState, ReceivedMoveQueue)
+		{_, #snake{length=L}} when L > 0 ->
+		    %% do nothing
+		    {SnakeId, Queue} = lists:keyfind(SnakeId, 1, ReceivedMoveQueue),
+		    NewQueue = process_move_list(MoveList, Queue),
+		    NewReceivedMoveQueue = lists:keystore(SnakeId, 1, ReceivedMoveQueue, {SnakeId, NewQueue}),
+		    game_loop(GameState, NewReceivedMoveQueue);
+		{_, false} ->
+		    %% shouldnt happen
+		    io:format("Error: received a move event from an unregistered snake ~p~n", [SnakeId]),
+		    %% do nothing
+		    game_loop(GameState, ReceivedMoveQueue)
 	    end;
 	{kill_snake, SnakeId} ->
 		%% kill snake => remove snake from all the data structures
@@ -173,6 +194,33 @@ game_loop (GameState, ReceivedMoveQueue) ->
 		NewReceivedMoveQueue = 	lists:keydelete(SnakeId, 1, ReceivedMoveQueue),
 		game_loop(GameState#game_state{snakes = NewSnakes}, NewReceivedMoveQueue)	
     end.
+
+process_options(GameState, [{food, NewFoods}|Rest]) ->
+    #game_state{foods = Foods} = GameState,
+    process_options(GameState#game_state{foods = Foods ++ NewFoods}, Rest);
+process_options(GameState, [{newpos, SnakePosList} | Rest]) ->
+    %% SnakePosList is a list of {SnakeId, Position} where Position is a list of {x,y}
+    %% coordinates
+    #game_state{snakes=Snakes} = GameState,
+    %% update snake position for each new snake
+    NewSnakes = update_new_snake_position(Snakes, SnakePosList),
+    process_options(GameState#game_state{snakes=NewSnakes}, Rest);
+process_options(GameState, []) ->
+    GameState.
+
+update_new_snake_position(Snakes, SnakePositionList) ->
+    update_new_snake_position(Snakes, SnakePositionList, []).
+
+update_new_snake_position(Snakes, [{SnakeId, Position} | Rest], Done) ->
+    case lists:keytake(SnakeId, #snake.id, Snakes) of
+	false ->
+	    update_new_snake_position(Snakes, Rest, Done);
+	{value, Snake, OtherSnakes} ->
+	    Length = length(Position),
+	    update_new_snake_position(OtherSnakes, Rest, [Snake#snake{position=queue:from_list(Position), length=Length} | Done])
+    end;
+update_new_snake_position(Snakes, [], Done) ->
+    Snakes ++ Done.
 
 %% we haven't received the gui events until now. now we just receive all of them an put
 %% them in a list in the order they were sent.

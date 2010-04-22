@@ -104,5 +104,5 @@ comm_loop(#comm_state{socket=Socket, myseqno=SeqNo} = CommState) ->
 	    end;
 	{debug} ->
 	    io:format("Debug info:~p", [CommState]),
-	    comm_loop(CommState)
+	    comm_loop(CommState);
     end.    

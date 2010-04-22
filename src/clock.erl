@@ -34,6 +34,12 @@ loop(Time) ->
 %% loop(_, 10) ->
 %% 	done;
 
+get_new_foods(Tick) ->
+    case Tick rem ?FOOD_GENERATION_INTERVAL of
+	1 -> food:get_new_foods();
+	_ -> []
+    end.
+
 loop(Time, Tick) ->
     receive
 	{Pid, stop} ->
@@ -41,16 +47,27 @@ loop(Time, Tick) ->
 	    io:format("Game Clock stopping~n");
 	{forcetick} ->
 	    game_manager:broadcast_tick(Tick),
-	    loop(Time, Tick+1)
-    after Time ->
-        %% Generate food every FOOD_GENERATION_INTERVAL.
-        if
-            (Tick rem ?FOOD_GENERATION_INTERVAL =:= 1) ->
-                NewFood = food:get_new_foods(),
-                game_manager:broadcast_tick(Tick, NewFood);
-            (Tick rem ?FOOD_GENERATION_INTERVAL =/= 1) ->
-                game_manager:broadcast_tick(Tick, [])
-        end,
+	    loop(Time, Tick+1);
+	{set_tick, T} ->
+	    loop(Time, T)
+    after
+	Time ->
+	    case game_manager:is_leader() of
+		true ->
+		    %% Generate food every FOOD_GENERATION_INTERVAL.
+		    Options = case game_logic:get_new_player_positions() of % each is {SnakeId, Position(a list of coords)}
+				  [] -> [];
+				  L -> [{newpos, L}]
+			      end,
+		    Options1 = case get_new_foods(Tick) of
+				   [] -> Options;
+				   NewFoods -> [{food, NewFoods}|Options]
+			       end,
+		    game_manager:broadcast_tick(Tick, Options1);
+		_Else ->
+		    %% TODO: maybe grab the current tick value from the gamelogic
+		    nothing
+	    end,
 	    loop(Time, Tick+1)
     end.
 
