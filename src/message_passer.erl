@@ -42,8 +42,11 @@ start(Port, MyId) ->
 start(Port, MyId, HostList) ->
     Pid = spawn_link(message_passer, server, [Port, MyId]),
     register(message_passer, Pid),
-    message_passer ! {listen, Port},
-    lists:foreach(fun ({Host, HostPort}) -> connect(Host, HostPort) end, [{"localhost", Port}| HostList]),
+    spawn(fun() ->
+		  message_passer ! {listen, Port},
+		  lists:foreach(fun ({Host, HostPort}) -> connect(Host, HostPort) end, [{{127,0,0,1}, Port}| HostList]),
+		  io:format("Finished connecting~n")
+	  end),
     Pid.
     
 stop() ->
@@ -182,21 +185,21 @@ loop(ServerState) ->
 						%% node id already exists so tell new connection to select a new id
 						io:format("Nodeid ~p already exists~n", [NodeId]),
 						%%ok = tcp_comm:send_msg(Pid, {error, nodeid_exists, NodeId}),
-                        case lists:keyfind({Ip, Port}, 2, ConnectWaitQueue) of
-                            {Pid2, {HostIP, HostPort}} ->
-                                Pid2 ! {message_passer, {NodeId, {HostIP, HostPort}}};
-                            false ->
-                                done
-                            %%Pid2 ! {message_passer, error}
-                        end,
+						case lists:keyfind({Ip, Port}, 2, ConnectWaitQueue) of
+						    {Pid2, {HostIP, HostPort}} ->
+							Pid2 ! {message_passer, {NodeId, {HostIP, HostPort}}};
+						    false ->
+							done
+							%%Pid2 ! {message_passer, error}
+						end,
 						RegisteredList;
 					    false ->
 						%% add node to registered list
 						case lists:keyfind({Ip, Port}, 2, ConnectWaitQueue) of
 						    {Pid3, {HostIP, HostPort}} ->
-							     Pid3 ! {message_passer, {NodeId, {HostIP, HostPort}}};
+							Pid3 ! {message_passer, {NodeId, {HostIP, HostPort}}};
 						    false ->
-                                done
+							done
 							%%Pid3 ! {message_passer, error}
 						end,
 						lists:keystore(NodeId, #host_info.nodeid, RegisteredList,#host_info{nodeid=NodeId, pid=Pid, host=Ip, port=Port})
