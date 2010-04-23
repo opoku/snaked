@@ -8,6 +8,7 @@
 -module(clock).
 
 -export([start/0,start/1,init/1,stop/0]).
+-include("game_state.hrl").
 
 -define(FOOD_GENERATION_INTERVAL, 10).
 
