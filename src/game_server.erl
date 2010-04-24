@@ -121,6 +121,19 @@ process_connection(Socket, #comm_state{game_list = GameList, gameid = CurrentGam
 		    gen_tcp:send(Socket, term_to_binary({ok, game_removed})),
 		    CommState#comm_state{game_list=NewGameList};
 		%% the person who is responsible for adding the player sends this message
+		{set, add_player, {GameId, {PlayerId, self, Port}}} ->
+		    case lists:keyfind(GameId, 1, GameList) of
+			{GameId, Name, NodeList} ->
+			    {ok, {HostIp, _Port}} = inet:peername(Socket),
+			    Player = {PlayerId, HostIp, Port},
+			    NewNodeList = [Player | NodeList],
+			    NewGameList = lists:keystore(GameId, 1, GameList, {GameId, Name, NewNodeList}),
+			    gen_tcp:send(Socket, term_to_binary({ok, player_added})),
+			    CommState#comm_state{game_list=NewGameList};
+			false ->
+			    gen_tcp:send(Socket, term_to_binary({error, {game_not_found, GameId}})),
+			    CommState
+		    end;
 		{set, add_player, {GameId, {_PlayerId, _Ip, _Port} = Player}} ->
 		    case lists:keyfind(GameId, 1, GameList) of
 			{GameId, Name, NodeList} ->
