@@ -59,11 +59,11 @@ init(Id, GameInfo) ->
 	
     %%Snakes = gen_snakes(),
     Obstacles = gen_obstacles(),
-	Priority = #game_state.priority,
+	Priority = 0,
 	NewPriority = update_priority(Priority),
-    GameState = #game_state{obstacles=Obstacles, myid = Id, priority = NewPriority},
+    GameState = #game_state{obstacles=Obstacles, myid = Id},
 
-    Snakes = [#snake{id=NodeId} || NodeId <- NodeList],
+    Snakes = [#snake{id=NodeId, priority = NewPriority} || NodeId <- NodeList],
 
     GameState = #game_state{obstacles=Obstacles, myid = Id, snakes=Snakes},
     %process_flag(trap_exit, true),
@@ -102,10 +102,10 @@ gen_obstacles() ->
 update_priority(Priority) ->
 	NewPriority = Priority + 1.
 
-find_max_priority(Snake | OtherSnakes) ->
+find_max_priority([Snake | OtherSnakes]) ->
 	find_max_priority(OtherSnakes, Snake).
 
-find_max_priority(NewSnake | OtherSnakes, Snake) ->
+find_max_priority([NewSnake | OtherSnakes], Snake) ->
 	P1 = NewSnake#snake.priority,
 	P2 = Snake#snake.priority,
 	
@@ -195,7 +195,7 @@ game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
 	    game_loop(GameState#game_state{state=started}, RMQ)
     end;
 
-game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
+game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
     #game_state{clock=Clock, myid = MyId} = GameState,
     %%io:format("DEBUG: started game loop, received game state --> ~p~n", [GameState]),
     io:format("DEBUG: started game loop~n"),
@@ -258,6 +258,7 @@ game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	%% TODO: check if we have received move events from all the snakes in the list
 	{move, SnakeId, []} ->
 	%% this will only match those events that are for the current clock
+	 io:format("empty movelist~n");
 	{move, _SnakeId, Clock, []} ->
         io:format("move, empty move list~n"),
 	    %% an empty movelist should be ignored
@@ -292,11 +293,10 @@ game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    end;
 	{kill_snake, SnakeId} ->
 		%% kill snake => remove snake from all the data structures
-		#game_state{snakes = Snakes,_,_,_,_,_,_} = GameState,
+		Snakes = GameState#game_state.snakes,
 		NewSnakes = lists:keydelete(SnakeId, 1, Snakes),
 		NewReceivedMoveQueue = 	lists:keydelete(SnakeId, 1, ReceivedMoveQueue),
 		game_loop(GameState#game_state{snakes = NewSnakes}, NewReceivedMoveQueue)	
-	    end
     end.
 
 generate_new_snake_position(SnakeId, NumNewPlayers) ->
