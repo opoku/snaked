@@ -363,6 +363,9 @@ evaluate_snakes(GS) ->
 find_point_in_point_list(Point, PointList) ->
     lists:member(Point, PointList).
 
+detect_collision(#snake{position={[],[]}}, _ObstacleMap) ->
+    false;
+
 detect_collision(Snake, ObstacleMap) ->
     %% true or false
     #snake{id=SnakeId, position=SnakePos} = Snake,
@@ -422,10 +425,16 @@ add_obstacle_point_list_to_map(PointList, D) ->
 		[{Coord, obstacle} || Coord <- PointList]).
 
 add_snake_to_map(#snake{position=SnakePos, id = Id}, D) ->
-    [SnakeHead | SnakeBody] = queue:to_list(SnakePos),
-    D1 = dict:append(SnakeHead, Id, D),
-    add_obstacle_point_list_to_map(SnakeBody, D1).
+    case queue:to_list(SnakePos) of
+	[SnakeHead | SnakeBody] ->
+	    D1 = dict:append(SnakeHead, Id, D),
+	    add_obstacle_point_list_to_map(SnakeBody, D1);
+	[] ->
+	    D
+    end.
 
+feed_snake(#snake{position={[],[]}}=Snake, Foods) ->
+    {not_fed, {Snake, Foods}};
 feed_snake(Snake, Foods) ->
     feed_snake(Snake, Foods, []).
 
@@ -519,6 +528,8 @@ move_snake(#snake{direction='Left'} = Snake, 'Right')->
 move_snake(#snake{direction='Right'} = Snake, 'Left')->
     Snake;
 %% actually move the snake
+move_snake(#snake{position={[],[]}}=Snake, _D) ->
+    Snake;
 move_snake(#snake{position=Q, length=L} = Snake, D) ->
     Fun = move_snake_function(D),
     Q1 = add_to_front(Fun(front(Q)), Q),

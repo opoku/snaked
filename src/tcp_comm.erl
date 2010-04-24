@@ -108,7 +108,7 @@ comm_loop(#comm_state{socket=Socket, myseqno=SeqNo} = CommState) ->
 self_comm_loop(Port) ->
     receive
 	{send, Pid, Data} ->
-	    message_passer ! Data,
+	    message_passer ! {recvdata, self(), Data},
 	    Pid ! {self(), ok},
 	    self_comm_loop(Port);
 	{getip, Pid} ->
