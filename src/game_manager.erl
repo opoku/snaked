@@ -71,7 +71,7 @@ make_leader(NodeId) ->
     broadcast_to_mp({make_leader, NodeId}).
 
 add_to_leader_queue(AddedSnakes) ->
-	game_manager ! {add_to_leader_queue, AddedSnakes}.
+	broadcast_to_mp({add_to_leader_queue, AddedSnakes}).
 
 update_leader_queue(LeaderQueue, [{SnakeId, _Position, _Dir} | OtherAddedSnakes]) ->
 	NewLeaderQueue = queue:in(SnakeId, LeaderQueue),
@@ -88,7 +88,7 @@ compare_priority({_Id1, _Dir1, _Pos1, _Len1, _Score1, _Lives1, P1}, {_Id2, _Dir2
 	end.
 
 remove_from_leader_queue(SnakeId) ->
-	game_manager ! {remove_from_leader_queue, SnakeId}.
+	broadcast_to_mp({remove_from_leader_queue, SnakeId}).
 
 
 %%Newbie
@@ -325,7 +325,8 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    %% this also makes sure that im not the leader
 		%% remove myself from the leader queue
 		game_manager_loop(ManagerState#manager_state{leader=false});
-	{remove_from_leader_queue, NodeId, Pid} ->
+	{remove_from_leader_queue, NodeId} ->
+		Pid = self(),
 		LeaderQueue = ManagerState#manager_state.leader_queue,
 		case queue:head(LeaderQueue) of
 			NodeId ->
