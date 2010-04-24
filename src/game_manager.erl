@@ -42,8 +42,8 @@ create_new_game(Name) ->
     io:format("Creating a new game ~p~n", [Name]),
     MyNodeId = get(id),
     {gameid, GameId} = send_message_to_game_server({set, add_game, Name}),
-    {HostIp, Port} = message_passer:get_host_info(MyNodeId),
-    {ok, player_added} = send_message_to_game_server({set, add_player, {GameId, {MyNodeId, HostIp, Port}}}),
+    {MyNodeId, _HostIp, Port} = message_passer:get_host_info(MyNodeId),
+    {ok, player_added} = send_message_to_game_server({set, add_player, {GameId, {MyNodeId, self, Port}}}),
     {GameId, Name, [MyNodeId]}.
     
 

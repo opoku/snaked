@@ -69,6 +69,8 @@ init(Id, GameInfo) ->
 
     snake_ui:start(GameState#game_state.size),
     
+    io:format("DEBUG: after ui start, ~p~n", [GameState]),
+    
     %% there is a queue for each snake
     ReceivedMoveQueue = [{NodeId, queue:new()} || NodeId <- NodeList ],
     game_loop(GameState, ReceivedMoveQueue).
@@ -130,6 +132,8 @@ start_game() ->
     ok.
 
 game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
+    %%io:format("DEBUG: new game loop, received game state --> ~p~n", [GameState]),
+    io:format("DEBUG: new game loop~n"),
     receive
 	{tick, NewClock, _Options} = Msg ->
 	    put(ticks, [Msg | get(ticks)]),
@@ -171,6 +175,8 @@ game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
 
 game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
     #game_state{clock=Clock, myid = MyId} = GameState,
+    %%io:format("DEBUG: started game loop, received game state --> ~p~n", [GameState]),
+    io:format("DEBUG: started game loop~n"),
     receive
 	{'EXIT', Pid, Reason} ->
 	    io:format("Pid ~p exited for reason ~p~n", [Pid, Reason]),
@@ -228,9 +234,11 @@ game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    end;
 	%% this will only match those events that are for the current clock
 	{move, _SnakeId, Clock, []} ->
+        io:format("move, empty move list~n"),
 	    %% an empty movelist should be ignored
 	    game_loop(GameState, ReceivedMoveQueue);
 	{move, SnakeId, Clock, MoveList} -> 
+        io:format("move, movelist--> ~p~n", [MoveList]),
 	    %% put this move into the queue for snakeid
 	    io:format("Snake ~p Move event received: ~p~n", [SnakeId, MoveList]),
 	    Snakes = GameState#game_state.snakes,

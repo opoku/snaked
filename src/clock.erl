@@ -43,7 +43,10 @@ get_new_foods(Tick) ->
 
 get_new_player_positions() ->
     GameState = game_logic:get_game_state(),
-    GameState#game_state.new_player_positions.
+    io:format("DEBUG: in get_new_player_positions, after get_game_state~n"),
+    Var = GameState#game_state.new_player_positions,
+    io:format("DEBUG: in get_new_player_positions, before return Var -->~n ~p~n", [Var]),
+    Var.
 
 
 loop(Time, Tick) ->
