@@ -5,7 +5,7 @@
 
 
 -include("game_state.hrl").
--record(manager_state, {nodeid, game_info, timeout = 5000, leader=false}).
+-record(manager_state, {nodeid, game_info, timeout = 5000, leader=false, leader_queue = []}).
 
 %% TODO: race condition where the game_server's list of nodes is out of date
 
@@ -73,9 +73,9 @@ make_leader(NodeId) ->
 add_to_leader_queue(AddedSnakes) ->
 	game_manager ! {add_to_leader_queue, AddedSnakes}.
 
-update_leader_queue(LeaderQueue, {SnakeId, _Position, _Dir} | OtherAddedSnakes) ->
+update_leader_queue(LeaderQueue, [{SnakeId, _Position, _Dir} | OtherAddedSnakes]) ->
 	NewLeaderQueue = queue:in(SnakeId, LeaderQueue),
-	update_leader_queue(NewLeaderQueue, OtherAddedSnakes).
+	update_leader_queue(NewLeaderQueue, OtherAddedSnakes);
 update_leader_queue(LeaderQueue, []) ->
 	LeaderQueue.
 
@@ -325,7 +325,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    %% this also makes sure that im not the leader
 		%% remove myself from the leader queue
 		game_manager_loop(ManagerState#manager_state{leader=false});
-	{remove_from_leader_queue, NodeId} ->
+	{remove_from_leader_queue, NodeId, Pid} ->
 		LeaderQueue = ManagerState#manager_state.leader_queue,
 		case queue:head(LeaderQueue) of
 			NodeId ->
@@ -341,14 +341,14 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 				NewLeaderId = queue:head(NewLeaderQueue),
 				Pid ! {make_leader, NewLeaderId};
 				%% send remove_player to game_server : Ask Osei, where is the Player being created??
-				send_message_to_game_server({set, remove_player, Player})
+				%%send_message_to_game_server({set, remove_player, Player});
 			OtherNodeId ->
 				%% convert to queue to list, remove NodeId, and convert back to queue
 				LeaderList = queue:to_list(LeaderQueue),
 				NewLeaderList = lists:delete(NodeId, LeaderList),
 				NewLeaderQueue = queue:from_list(NewLeaderList)
 		end,
-		game_manager_loop(ManagerState#manager_state.leader_queue = NewLeaderQueue);
+		game_manager_loop(ManagerState#manager_state{leader_queue = NewLeaderQueue});
 	Any ->
 	    io:format("Invalid message ~p~n", [Any]),
 	    game_manager_loop(ManagerState)
