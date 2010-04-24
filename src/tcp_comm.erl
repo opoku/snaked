@@ -21,6 +21,11 @@ client_connect(Host, Port) ->
 		client_connect(Host, Port)
     end.	
 
+client_start({127,0,0,1}, Port) ->
+    message_passer ! {comm_started, self()},
+    send_node_id(),
+    self_comm_loop(Port);
+
 client_start(Host, Port) ->
     message_passer ! {comm_started, self()},
     Socket = client_connect(Host, Port),		
@@ -106,3 +111,17 @@ comm_loop(#comm_state{socket=Socket, myseqno=SeqNo} = CommState) ->
 	    io:format("Debug info:~p", [CommState]),
 	    comm_loop(CommState)
     end.    
+
+self_comm_loop(Port) ->
+    receive
+	{send, Pid, Data} ->
+	    message_passer ! {recvdata, self(), Data},
+	    Pid ! {self(), ok},
+	    self_comm_loop(Port);
+	{getip, Pid} ->
+	    Pid ! {self(), {127,0,0,1}},
+	    self_comm_loop(Port);
+	{debug} ->
+	    io:format("Debug info for self loop:~p", [Port]),
+	    comm_loop(Port)
+    end.
