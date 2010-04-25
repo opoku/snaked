@@ -112,6 +112,14 @@ get_game_state() ->
         GameState
     end.
 
+get_new_player_position() ->
+    game_logic ! {self(), get_new_player_position},
+    Pid = whereis(game_logic),
+    receive
+    {Pid, Pos} ->
+        Pos
+    end.
+
 update_game_state(GameState) ->
     game_logic ! {game_state, GameState},
     ok.
@@ -187,6 +195,11 @@ game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    io:format("Getstate~n"),
 	    Pid ! {self(), {GameState, ReceivedMoveQueue}},
 	    game_loop(GameState, ReceivedMoveQueue);
+	{Pid, get_new_player_position} ->
+	    io:format("Get New Player Position~n"),
+	    #game_state{new_player_positions=NewPos} = GameState,
+	    Pid ! {self(), NewPos},
+	    game_loop(GameState#game_state{new_player_positions=[]}, ReceivedMoveQueue);
 	{Pid, get_game_state} ->
 	    io:format("Get Game State~n"),
 	    Pid ! {self(), GameState},
@@ -242,12 +255,12 @@ game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    io:format("Snake ~p Move event received: ~p~n", [SnakeId, MoveList]),
 	    Snakes = GameState#game_state.snakes,
 	    case {game_manager:is_leader(), lists:keyfind(SnakeId, #snake.id, Snakes)} of
-		{yes, #snake{length=0}} ->
+		{true, #snake{length=0}} ->
 		    %% zero length snake and i am the leader
 		    NewSnakePosList = GameState#game_state.new_player_positions,
 		    NewSnakePosList1 = [generate_new_snake_position(SnakeId, length(NewSnakePosList)) | NewSnakePosList],
 		    game_loop(GameState#game_state{new_player_positions=NewSnakePosList1}, ReceivedMoveQueue);
-		{no, #snake{length=0}} ->
+		{false, #snake{length=0}} ->
 		    %% ignore this move
 		    game_loop(GameState, ReceivedMoveQueue);
 		{_, #snake{length=L}} when L > 0 ->

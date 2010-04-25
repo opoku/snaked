@@ -131,6 +131,7 @@ compare({MyId1, NwTimeStamp1}, {MyId2,NwTimeStamp2}) ->
 %% this is primarily called when a message needs to be sent to other processes like
 %% game_logic
 route_message(Msg) ->
+    io:format("Route message ~p~n", [Msg]),
     case Msg of
 	{game_logic, Body} ->
 	    game_logic ! Body;

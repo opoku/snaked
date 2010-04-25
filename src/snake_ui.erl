@@ -123,17 +123,21 @@ food(#food{position = [{X,Y}]}, Can)->
     gs:create(rectangle, Can, [{coords,[{X1-5,Y1-5},{X1+5,Y1+5}]},{fg,green}, {fill,green}]).
 
 display_snakes(List,Can)->
-    lists:map(fun(X)->snak(X,Can) end, List).
+    lists:delete(false, lists:map(fun(X)->snak(X,Can) end, List)).
 
 snak(#snake{position = P},Can)->
     Coords = queue:to_list(P),
     Len = length(Coords),
-    Coords1 = case Len of
+    case Len of
 	1 -> [{X,Y}] = Coords,
-	     [{X,Y},{X,Y}];
-	_Default-> Coords	 
-    end,
-    gs:create(line, Can, [{coords,resize(Coords1)}, {fg,cyan},{width, 10}]).
+	     Coords1 = [{X,Y},{X,Y}],
+	     gs:create(line, Can, [{coords,resize(Coords1)}, {fg,cyan},{width, 10}]);
+	0 -> false;
+
+	_Default-> 
+	     gs:create(line, Can, [{coords,resize(Coords)}, {fg,cyan},{width, 10}])
+    end.
+    
 
 display_snakes(List, Can, Snakes_List)->
     io:format("display snakes called~n",[]),
