@@ -1,5 +1,5 @@
 %% host name
-"localhost".
+{128,237,231,240}.
 
 %% port
 9999.
