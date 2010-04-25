@@ -219,9 +219,11 @@ loop(ServerState) ->
 			#host_info{status=guest, nodeid=NodeId} ->
 			    %% only route two types of messages from guests
 			    case Data of
-				{game_manager, hello, NodeId} ->
+				{game_manager, {hello, NodeId}} ->
 				    route_message(Data);
-				{game_manager, join, NodeId} ->
+				{game_manager, {join, NodeId}} ->
+				    route_message(Data);
+				{game_manager, {ok, NodeId}} ->
 				    route_message(Data);
 				_Any ->
 				    io:format("Dropping messsage ~p from guest ~p~n", [Data, NodeId])
@@ -399,7 +401,7 @@ loop(ServerState) ->
 	    RegisteredList = ServerState#server_state.registered_list,
 	    case lists:keyfind(ResourceId, 1, LockStateList) of
 		false ->
-		    ReplyList = [{lockReply, Node, MyNodeId} || #host_info{nodeid=Node,status=Status} <- RegisteredList, Status=player],
+		    ReplyList = [{lockReply, Node, MyNodeId} || #host_info{nodeid=Node,status=Status} <- RegisteredList, Status =:= player],
 		    NewLockStateList = lists:keystore(ResourceId, 1, LockStateList,
 						      {ResourceId, released, queue:new(), ReplyList, Pid}),
 		    LockMessage = {lockRequest, ResourceId},
