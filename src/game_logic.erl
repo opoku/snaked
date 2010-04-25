@@ -112,6 +112,11 @@ get_game_state() ->
         GameState
     end.
 
+count_players() ->
+    #game_state{snakes=Snakes} = get_game_state(),
+    length(Snakes).
+
+
 get_new_player_position() ->
     game_logic ! {self(), get_new_player_position},
     Pid = whereis(game_logic),

@@ -204,6 +204,7 @@ join_loop(GameInfo, {connected, NodeId}) ->
     receive
 	{adding, NodeId} ->
 	    game_logic:start(get(id), GameInfo),
+	    send_to_mp(NodeId, {ok, get(id)}),
 	    join_loop(GameInfo, {connected, NodeId});
 	{started, game_logic} ->
 	    io:format("Received all the messages from nodes in the game~n"),
@@ -229,6 +230,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	{join, NodeId} ->
 	    io:format("Received join from ~p~n", [NodeId]),
 	    Pid = spawn_link(fun () ->
+				     put(id, MyNodeId),
 				     message_passer:get_lock(add_player),
 				     try try_to_add_new_player(NodeId)
 				     after
