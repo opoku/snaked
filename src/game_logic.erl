@@ -150,7 +150,7 @@ game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
     receive
 	{tick, NewClock, _Options} = Msg ->
 	    put(ticks, [Msg | get(ticks)]),
-	    message_passer:broadcast({game_logic, {move, MyId, NewClock-1, []}}),
+	    message_passer:broadcast({game_logic, {move, MyId, NewClock, []}}),
 	    game_loop(GameState, RMQ);
 	{move, SnakeId, _EventClock, _MoveList} = Msg ->
 	    put(events, [Msg|get(events)]),
