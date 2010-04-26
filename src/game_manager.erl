@@ -8,13 +8,18 @@
 
 %% TODO: race condition where the game_server's list of nodes is out of date
 
-start(MyNodeId) ->
-    spawn(game_manager, init, [MyNodeId]).
+start([MyNodeId, Port]) ->
+    MyNodeIdAtom = list_to_atom(MyNodeId),
+    PortNum = list_to_integer(Port),
+    start(MyNodeIdAtom, PortNum).
 
-init(MyNodeId) ->
+start(MyNodeId, Port) ->
+    spawn(game_manager, init, [MyNodeId, Port]).
+
+init(MyNodeId, DefaultPort) ->
     put(id, MyNodeId),
 
-    DefaultPort = 5555,
+    %%DefaultPort = 5555,
     %%Invoke message passer.
     
     message_passer:start(DefaultPort, MyNodeId, []),
