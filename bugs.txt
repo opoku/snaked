@@ -9,6 +9,8 @@ so that they dont keep on sending events or ticks
 -remove the person from game state and message passer when someone is dead
 -there is an issue where osei and manan were playing the game thinking they are
 the only players in the game.. somehow the game state got currupted
+-make sure that you receive events from every other node in the game during
+each time period
 
 ####################### Solved Issues ############################
 
