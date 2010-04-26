@@ -21,14 +21,14 @@ client_start({127,0,0,1}, Port) ->
 
 client_start(Host, Port) ->
     message_passer ! {comm_started, self()},
-    {ok, Socket} = gen_tcp:connect(Host, Port, [binary, {packet, 0}]),
+    {ok, Socket} = gen_tcp:connect(Host, Port, [binary, {packet, 4}]),
     %% send your node id to the server
     send_node_id(),
     comm_loop(#comm_state{socket=Socket}).
 
 start_server(Port) ->
     {ok, Listen} = gen_tcp:listen(Port, [binary,
-					 {packet,0},
+					 {packet,4},
 					 {reuseaddr, true},
 					 {active, true}]),
     spawn(tcp_comm, par_connect, [Port, Listen]).
