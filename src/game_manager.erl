@@ -295,10 +295,10 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
                     io:format("Add player failed ~p~n", [Reason]),
                     game_manager_loop(ManagerState)
                 end;
-            Any ->
+            _Any ->
                 put({NodeId, addplayer}, IdList1),
                 game_manager_loop(ManagerState)
-        end
+        end;
 	{check_for_leader, Pid} ->
 	    Pid ! {game_manager, is_leader_result, ManagerState#manager_state.leader},
 	    game_manager_loop(ManagerState);
