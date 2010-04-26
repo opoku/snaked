@@ -219,11 +219,20 @@ game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    apply(Mod, Func, [GameState, ReceivedMoveQueue]);
 	{die} ->
 	    io:format("Game Logic Dying~n");
-	{add_player, NodeId} ->
+	{add_player, NodeId, HandlerId} ->
 	    io:format("Adding player ~p~n", [NodeId]),
+        
+        %% create a new snake in game state, create a received move queue entry
 	    #game_state{snakes=Snakes} = GameState,
 	    Snakes1 = [#snake{id=NodeId} |Snakes],
 	    NewReceivedMoveQueue = [{NodeId, queue:new()} | ReceivedMoveQueue],
+        
+        %% make the new node a player
+        message_passer:make_player(NodeId),
+        
+        %% send back an ack after adding the player to the handler
+        game_manager:send_to_mp(HandlerId, {player_added, NodeId, MyId}),
+        
 	    game_loop(GameState#game_state{snakes=Snakes1}, NewReceivedMoveQueue);
 	{tick, NewClock, Options} ->
 	    io:format ("Received tick for clock ~p old Clock ~p~n", [NewClock, Clock]),

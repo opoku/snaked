@@ -257,29 +257,48 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	{add_player, NodeId} ->
 	    %% we can add the player
 	    %% going to add the player to the game state with an empty position
-	    message_passer:broadcast({game_logic, {add_player, NodeId}}),
-
-	    %% tell everyone to convert the player
-	    message_passer:broadcast({make_player, NodeId}),
-
-
+	    message_passer:broadcast({game_logic, {add_player, NodeId, get(id)}}),
+        
+        %% create a checklist for acks
+        #manager_state{game_info = {_,_,NodeList}} = ManagerState,
+        IdList = [Id || {Id,_,_} <- NodeList],
+        put({NodeId, addplayer},IdList),
+        
 	    game_manager_loop(ManagerState);
-	{player_added, NodeId} ->
-	    %% this is sent by the game logic when the player is added
-	    Pid = get(NodeId),
-	    Pid ! {player_added, NodeId},
-	    erase(NodeId),
+	{player_added, NodeId, AckSenderId} ->
+        %% make sure you receive acks from everyone else in the game
+        IdList = get({NodeId, addplayer}),
+        IdList1 = case IdList of
+                    undefined ->
+                        undefined;
+                    IdList -> 
+                        IdList -- [AckSenderId]
+                  end,
+        case IdList1 of
+            undefined ->
+                game_manager_loop(ManagerState);
+            [] ->
+                erase({NodeId, addplayer}),
+                
+                %% this is sent by the game logic when the player is added
+                Pid = get(NodeId),
+                Pid ! {player_added, NodeId},
+                erase(NodeId),
 
-	    %% add the player to the game server
-	    #manager_state{game_info={GameId, Name, NodeList}} = ManagerState,
-	    HostInfo = message_passer:get_host_info(NodeId),
-	    case send_message_to_game_server({set, add_player, {GameId, HostInfo}}) of
-		{ok, player_added} ->
-		    game_manager_loop(ManagerState#manager_state{game_info={GameId, Name, [HostInfo|NodeList]}});
-		{error, Reason} ->
-		    io:format("Add player failed ~p~n", [Reason]),
-		    game_manager_loop(ManagerState)
-	    end;
+                %% add the player to the game server
+                #manager_state{game_info={GameId, Name, NodeList}} = ManagerState,
+                HostInfo = message_passer:get_host_info(NodeId),
+                case send_message_to_game_server({set, add_player, {GameId, HostInfo}}) of
+                {ok, player_added} ->
+                    game_manager_loop(ManagerState#manager_state{game_info={GameId, Name, [HostInfo|NodeList]}});
+                {error, Reason} ->
+                    io:format("Add player failed ~p~n", [Reason]),
+                    game_manager_loop(ManagerState)
+                end;
+            Any ->
+                put({NodeId, addplayer}, IdList1),
+                game_manager_loop(ManagerState)
+        end
 	{check_for_leader, Pid} ->
 	    Pid ! {game_manager, is_leader_result, ManagerState#manager_state.leader},
 	    game_manager_loop(ManagerState);
