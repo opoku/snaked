@@ -1,0 +1,17 @@
+Last updated on: 4/26, 12:26AM
+By: Manan
+
+###################### Open Issues ##############################
+
+-when someone dies, they should call game_manager:stop() or some such function 
+so that they dont keep on sending events or ticks
+-snakes should be of different color; pick the next unused color
+-remove the person from game state and message passer when someone is dead
+-there is an issue where osei and manan were playing the game thinking they are
+the only players in the game.. somehow the game state got currupted
+
+####################### Solved Issues ############################
+
+
+
+##################################################################
