@@ -68,6 +68,8 @@ loop(Can,Snakes_List,Obstacle_List,Food_List,Messages_List)->
 	    loop(Can,Snakes_List1, Obstacle_List, Food_List,Messages_List)
     end.
 
+display_obstacles(Obstacles) ->
+    snake_ui ! {display_obstacles, Obstacles}.
 
 display(#game_state{snakes = Snakes, obstacles = Obstacles, foods = Food, size = Size, clock = Tick} = GameState, Results) ->
     %% do something with results
@@ -76,12 +78,12 @@ display(#game_state{snakes = Snakes, obstacles = Obstacles, foods = Food, size =
 
     %%io:format("GameState: ~p  Results : ~p~n", [GameState, Results]),
 
-    if
-	Tick < 2 ->
-	    snake_ui ! {display_obstacles, Obstacles};
-	true ->
-	    done
-    end,
+    %%if
+	%%Tick < 2 ->
+	%%    snake_ui ! {display_obstacles, Obstacles},
+	%%true ->
+	  %%  done
+    %%end,
     snake_ui ! {display_food, Food},
     snake_ui ! {display_snakes, Snakes},
     done.

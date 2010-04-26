@@ -69,8 +69,6 @@ init(Id, GameInfo) ->
 
     snake_ui:start(GameState#game_state.size),
     
-    io:format("DEBUG: after ui start~n"),
-    
     %% there is a queue for each snake
     ReceivedMoveQueue = [{NodeId, queue:new()} || NodeId <- NodeList ],
     game_loop(GameState, ReceivedMoveQueue).
@@ -145,8 +143,7 @@ start_game() ->
     ok.
 
 game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
-    %%io:format("DEBUG: new game loop, received game state --> ~p~n", [GameState]),
-    io:format("DEBUG: new game loop~n"),
+    %%io:format("DEBUG: new game loop~n"),
     receive
 	{tick, NewClock, _Options} = Msg ->
 	    put(ticks, [Msg | get(ticks)]),
@@ -178,18 +175,25 @@ game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
 			    %% clears the last element in process dictionary
 			    erase(unseen_nodes),
                 RMQ1 = [{SnakeId1, queue:new()} || #snake{id = SnakeId1} <- Snakes],
-			    game_loop(NewGameState#game_state{myid=MyId}, RMQ1)
+                
+                %%explicitly display obstacles before starting the game
+                snake_ui:display_obstacles(NewGameState#game_state.obstacles),
+			    
+                game_loop(NewGameState#game_state{myid=MyId}, RMQ1)
 		    end;
 		_Any ->
 		    game_loop(GameState, RMQ)		    
 	    end;
 	{start_game} ->
+        %%explicitly display obstacles before starting the game
+        snake_ui:display_obstacles(GameState#game_state.obstacles),
+        
 	    game_loop(GameState#game_state{state=started}, RMQ)
     end;
 
 game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
     #game_state{clock=Clock, myid = MyId} = GameState,
-    io:format("DEBUG: started game loop ~p~n", [Clock]),
+    %%io:format("DEBUG: started game loop ~p~n", [Clock]),
     receive
 	{'EXIT', Pid, Reason} ->
 	    io:format("Pid ~p exited for reason ~p~n", [Pid, Reason]),
@@ -202,7 +206,7 @@ game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    Pid ! {self(), {GameState, ReceivedMoveQueue}},
 	    game_loop(GameState, ReceivedMoveQueue);
 	{Pid, get_new_player_position} ->
-	    io:format("Get New Player Position~n"),
+	    %%io:format("Get New Player Position~n"),
 	    #game_state{new_player_positions=NewPos} = GameState,
 	    Pid ! {self(), NewPos},
 	    game_loop(GameState#game_state{new_player_positions=[]}, ReceivedMoveQueue);
@@ -225,7 +229,7 @@ game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    io:format ("Received tick for clock ~p old Clock ~p~n", [NewClock, Clock]),
 	    case Clock + 1 =:= NewClock of
 		true ->
-		    io:format ("Advancing Clock~n"),
+		    %%io:format ("Advancing Clock~n"),
 		    MoveEvents = receive_all_events(),
 		    MoveMsg = {game_logic, {move, MyId, NewClock, MoveEvents}},
 
@@ -239,17 +243,12 @@ game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		    {NewGameState, NewReceivedMoveQueue} = advance_game(NewGameState0, ReceivedMoveQueue),
 		    %% We create new food here for use by the clock whenever it wants to use.
 
-            io:format("DEBUG: Completed advance game~n"),
-            
-		    NewGameState1 = case game_manager:is_leader() of
+            NewGameState1 = case game_manager:is_leader() of
 					true ->
 					    food:generate_foods(NewGameState);
 					false ->
-					    NewGameState;
-                    Any ->
-                        io:format("DEBUG: Is_leader returned: ~p, which is not appropriate~n", [Any])
+					    NewGameState
 				    end,
-            io:format("DEBUG: Completed is leader case clause~n"),
             game_loop(NewGameState1, NewReceivedMoveQueue);
 
 		_Any -> % ignore other 
@@ -257,11 +256,11 @@ game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    end;
 	%% this will only match those events that are for the current clock
 	{move, _SnakeId, Clock, []} ->
-	    io:format("move, empty move list~n"),
+	    %%io:format("move, empty move list~n"),
 	    %% an empty movelist should be ignored
 	    game_loop(GameState, ReceivedMoveQueue);
 	{move, SnakeId, Clock, MoveList} -> 
-	    io:format("move, movelist--> ~p~n", [MoveList]),
+	    %%io:format("move, movelist--> ~p~n", [MoveList]),
 	    %% put this move into the queue for snakeid
 	    io:format("Snake ~p Move event received: ~p~n", [SnakeId, MoveList]),
 	    Snakes = GameState#game_state.snakes,

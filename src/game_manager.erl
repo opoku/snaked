@@ -50,11 +50,9 @@ create_new_game(Name) ->
 
 is_leader() ->
     game_manager ! {check_for_leader, self()},
-    io:format("DEBUG: in is leader, waiting for game_manager to respond~n"),
     receive
 	{game_manager, is_leader_result, Result} ->
-        io:format("DEBUG: in is_leader, received:~p~n",[Result]),
-	    Result
+        Result
     end.
 
 make_leader(NodeId) ->
@@ -283,7 +281,6 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 		    game_manager_loop(ManagerState)
 	    end;
 	{check_for_leader, Pid} ->
-        io:format("DEBUG: in check_for_leader, ManagerState=~p~n", [ManagerState]),
 	    Pid ! {game_manager, is_leader_result, ManagerState#manager_state.leader},
 	    game_manager_loop(ManagerState);
 	{make_leader, MyNodeId} ->

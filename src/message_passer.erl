@@ -131,7 +131,7 @@ compare({MyId1, NwTimeStamp1}, {MyId2,NwTimeStamp2}) ->
 %% this is primarily called when a message needs to be sent to other processes like
 %% game_logic
 route_message(Msg) ->
-    io:format("Route message ~p~n", [Msg]),
+    %%io:format("Route message ~p~n", [Msg]),
     case Msg of
 	{game_logic, Body} ->
 	    game_logic ! Body;
@@ -143,7 +143,7 @@ route_message(Msg) ->
     
 
 route_message(HostId, Msg) ->
-    io:format("Route Message ~p from ~p~n", [Msg, HostId]),
+    %%io:format("Route Message ~p from ~p~n", [Msg, HostId]),
     route_message(Msg).
 
 find_source_message({Source,MsgId},[{_,_,Source,MsgId}| _AckList]) -> found;
@@ -161,12 +161,12 @@ is_guest(#host_info{status=guest}) ->
     true.
 
 usend(Id, Msg, RegisteredList) ->
-    io:format("Sending unicast message to id ~p : ~p~n", [Id, Msg]),
+    %%io:format("Sending unicast message to id ~p : ~p~n", [Id, Msg]),
     #host_info{pid=Pid} = lists:keyfind(Id, #host_info.nodeid, RegisteredList),
     ok = tcp_comm:send_msg(Pid, Msg).
 
 bsend(Msg, RegisteredList) ->
-    io:format("Sending broadcast message : ~p~n", [Msg]),
+    %%io:format("Sending broadcast message : ~p~n", [Msg]),
     lists:foreach(fun (#host_info{pid=Pid}) -> ok = tcp_comm:send_msg(Pid, Msg)
 		  end, RegisteredList).
 
@@ -175,7 +175,7 @@ loop(ServerState) ->
 	%% communication with processes
 	{recvdata, Pid, Data} ->
 	    %% recv'd data from external node.. lets decide what do with it
-	    io:format("Received message ~p~n", [Data]),
+	    %%io:format("------Received message ~p~n", [Data]),
 	    case Data of 
 		{register, NodeId, Port} ->
 		    Ip = tcp_comm:get_host_ip(Pid),
@@ -208,7 +208,7 @@ loop(ServerState) ->
 		    NewMessageTrackingList = lists:keystore(NodeId, 1, MessageTrackingList, {NodeId, -1}),
 		    loop(ServerState#server_state{registered_list = NewRegisteredList, msg_tracker = NewMessageTrackingList});
 		_Any ->
-		    io:format("recvdata ~p~n",[Data]),
+		    %%io:format("recvdata ~p~n",[Data]),
 		    case lists:keyfind(Pid, #host_info.pid, ServerState#server_state.registered_list) of
 			false ->
 			    %% should not happend
