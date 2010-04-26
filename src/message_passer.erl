@@ -142,7 +142,7 @@ route_message(Msg) ->
     end.
     
 
-route_message(HostId, Msg) ->
+route_message(_HostId, Msg) ->
     %%io:format("Route Message ~p from ~p~n", [Msg, HostId]),
     route_message(Msg).
 
