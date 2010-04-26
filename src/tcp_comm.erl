@@ -76,8 +76,9 @@ comm_loop(#comm_state{socket=Socket, myseqno=SeqNo} = CommState) ->
     receive
 	{tcp, Socket, Data} ->
 	    %% forward to message passer
+	    io:format("Length of received bindata:~p~n", [size(Data)]),
 	    Data1 = binary_to_term(Data),
-	    io:format("Received tcp data~p(binsize:~p)~n", [Data1, size(Data)]),
+	    io:format("Received tcp data~p~n", [Data1]),
 	    message_passer ! {recvdata, self(), Data1},
 	    comm_loop(CommState);
 	{tcp_closed, Socket} ->
