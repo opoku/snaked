@@ -26,7 +26,7 @@ init(MyNodeId) ->
 	{ok, GameInfo, GameState} ->
 	    %%If you joined a game, you will receive the game state from the current game.
 	    game_logic:update_game_state(GameState),
-	    game_manager_loop(#manager_state{nodeid = MyNodeId, game_info=GameInfo});
+	    game_manager_loop(#manager_state{nodeid = MyNodeId, game_info=GameInfo, leader=false});
 	fail -> 
 	    %%If you can't join the game, you start a new game and become a leader.
 	    {_GameId, _Name, _NodeList} = GameInfo = create_new_game("DefaultName"),
@@ -50,8 +50,10 @@ create_new_game(Name) ->
 
 is_leader() ->
     game_manager ! {check_for_leader, self()},
+    io:format("DEBUG: in is leader, waiting for game_manager to respond~n"),
     receive
-	Result ->
+	{game_manager, is_leader_result, Result} ->
+        io:format("DEBUG: in is_leader, received:~p~n",[Result]),
 	    Result
     end.
 
@@ -204,6 +206,7 @@ join_loop(GameInfo, {connected, NodeId}) ->
     receive
 	{adding, NodeId} ->
 	    game_logic:start(get(id), GameInfo),
+        message_passer:make_player(get(id)),
 	    send_to_mp(NodeId, {ok, get(id)}),
 	    join_loop(GameInfo, {connected, NodeId});
 	{started, game_logic} ->
@@ -280,7 +283,8 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 		    game_manager_loop(ManagerState)
 	    end;
 	{check_for_leader, Pid} ->
-	    Pid ! ManagerState#manager_state.leader,
+        io:format("DEBUG: in check_for_leader, ManagerState=~p~n", [ManagerState]),
+	    Pid ! {game_manager, is_leader_result, ManagerState#manager_state.leader},
 	    game_manager_loop(ManagerState);
 	{make_leader, MyNodeId} ->
 	    %% If the nodeid is mine then make myself the leader

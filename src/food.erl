@@ -10,6 +10,7 @@ generate_foods(GameState) ->
     Offset = generate_random_number(XSize*YSize - 1),
     X = Offset rem XSize,
     Y = Offset div XSize,
+    io:format("DEBUG: in generate_food, before case~n"),
     case is_block_occupied(GameState, X, Y) of
         true ->
             generate_foods(GameState);

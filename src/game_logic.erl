@@ -163,7 +163,7 @@ game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
 		    io:format("I have seen all the nodes so Im telling the game manager~n"),
 		    game_manager ! {started, game_logic},
 		    receive
-			{game_state, #game_state{clock=Clock} = NewGameState} ->
+			{game_state, #game_state{clock=Clock, snakes=Snakes} = NewGameState} ->
 			    io:format("I have received the game state~n"),
 			    %% erase(Key) returns value and then erases the key
 			    %% keep all the ticks that are after the clock in
@@ -177,7 +177,8 @@ game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
 
 			    %% clears the last element in process dictionary
 			    erase(unseen_nodes),
-			    game_loop(NewGameState#game_state{myid=MyId}, RMQ)
+                RMQ1 = [{SnakeId1, queue:new()} || #snake{id = SnakeId1} <- Snakes],
+			    game_loop(NewGameState#game_state{myid=MyId}, RMQ1)
 		    end;
 		_Any ->
 		    game_loop(GameState, RMQ)		    
@@ -238,13 +239,18 @@ game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		    {NewGameState, NewReceivedMoveQueue} = advance_game(NewGameState0, ReceivedMoveQueue),
 		    %% We create new food here for use by the clock whenever it wants to use.
 
+            io:format("DEBUG: Completed advance game~n"),
+            
 		    NewGameState1 = case game_manager:is_leader() of
 					true ->
 					    food:generate_foods(NewGameState);
 					false ->
-					    NewGameState
+					    NewGameState;
+                    Any ->
+                        io:format("DEBUG: Is_leader returned: ~p, which is not appropriate~n", [Any])
 				    end,
-		    game_loop(NewGameState1, NewReceivedMoveQueue);
+            io:format("DEBUG: Completed is leader case clause~n"),
+            game_loop(NewGameState1, NewReceivedMoveQueue);
 
 		_Any -> % ignore other 
 		    game_loop(GameState, ReceivedMoveQueue)
