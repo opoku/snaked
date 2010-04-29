@@ -263,7 +263,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    game_manager:send_to_mp(HandlerId, {player_added, NodeId, MyId}),
 
 	    game_loop(GameState#game_state{snakes=Snakes1}, NewReceivedMoveQueue);
-	{tick, NewClock, Options} ->
+	{tick, NewClock, Options} = Tick ->
 	    io:format ("Received tick for clock ~p old Clock ~p~n", [NewClock, Clock]),
 	    case Clock + 1 =:= NewClock of
 		true ->
@@ -277,7 +277,8 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 			MissingSnakes ->
 			    %% TODO: ask for it from other nodes or something involving a NACK
 			    io:format("DEBUG: Missing events from ~p~n", [MissingSnakes]),
-			    done
+			    game_logic ! Tick ,
+			    game_loop(GameState, ReceivedMoveQueue)
 		    end,
 
 		    %%io:format ("Advancing Clock~n"),
