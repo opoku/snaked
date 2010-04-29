@@ -329,8 +329,10 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 		    Pid = get(NodeId),
 		    Pid ! {player_added, NodeId},
 		    erase(NodeId),
-		    
-		    add_player_to_game_info(NodeId);
+
+		    %% add the player to the game server
+		    {GameId,_,_} = ManagerState#manager_state.game_info,
+		    add_player_to_game_server(GameId, NodeId);
 		_Any ->
 		    put({NodeId, addplayer}, IdList1),
 		    game_manager_loop(ManagerState)
@@ -340,7 +342,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    game_manager_loop(ManagerState);
 	{make_leader, MyNodeId} ->
 	    %% If the nodeid is mine then make myself the leader
-	    #game_state{clock=Tick} = game_manager:get_game_state(),
+	    #game_state{clock=Tick} = game_logic:get_game_state(),
 	    clock:set_tick(Tick),
 	    game_manager_loop(ManagerState#manager_state{leader=true});
 	{make_leader, _OtherNodeId} ->
