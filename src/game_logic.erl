@@ -447,7 +447,7 @@ advance_game(GameState, MoveQueue) ->
     {NewGameState, NewMoveQueue}.
 
 update_game_connections([{killed, SnakeId} | Results]) ->
-    mesage_passer:disconnect_from_nodeid(SnakeId),
+    message_passer:disconnect_from_nodeid(SnakeId),
     update_game_connections(Results);
 update_game_connections([_H|L]) ->
     update_game_connections(L);
