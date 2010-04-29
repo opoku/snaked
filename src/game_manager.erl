@@ -9,13 +9,18 @@
 
 %% TODO: race condition where the game_server's list of nodes is out of date
 
-start(MyNodeId) ->
-    spawn(game_manager, init, [MyNodeId]).
+start([MyNodeId, Port]) ->
+    MyNodeIdAtom = list_to_atom(MyNodeId),
+    PortNum = list_to_integer(Port),
+    start(MyNodeIdAtom, PortNum).
 
-init(MyNodeId) ->
+start(MyNodeId, Port) ->
+    spawn(game_manager, init, [MyNodeId, Port]).
+
+init(MyNodeId, DefaultPort) ->
     put(id, MyNodeId),
 
-    DefaultPort = 5555,
+    %%DefaultPort = 5555,
     %%Invoke message passer.
     
     message_passer:start(DefaultPort, MyNodeId, []),
@@ -33,6 +38,7 @@ init(MyNodeId) ->
 		SortedSnakes = lists:sort(fun compare_priority/2, Snakes),
 		LeaderQueue = queue:from_list(SortedSnakes),
 	    game_manager_loop(#manager_state{nodeid = MyNodeId, game_info=GameInfo, leader_queue = LeaderQueue});
+
 	fail -> 
 	    %%If you can't join the game, you start a new game and become a leader.
 	    {_GameId, _Name, _NodeList} = GameInfo = create_new_game("DefaultName"),
@@ -63,8 +69,8 @@ create_new_game(Name) ->
 is_leader() ->
     game_manager ! {check_for_leader, self()},
     receive
-	Result ->
-	    Result
+	{game_manager, is_leader_result, Result} ->
+        Result
     end.
 
 make_leader(NodeId) ->
@@ -236,6 +242,8 @@ join_loop(GameInfo, {connected, NodeId}) ->
     receive
 	{adding, NodeId} ->
 	    game_logic:start(get(id), GameInfo),
+        message_passer:make_player(get(id)),
+	    send_to_mp(NodeId, {ok, get(id)}),
 	    join_loop(GameInfo, {connected, NodeId});
 	{started, game_logic} ->
 	    io:format("Received all the messages from nodes in the game~n"),
@@ -260,6 +268,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	{join, NodeId} ->
 	    io:format("Received join from ~p~n", [NodeId]),
 	    Pid = spawn_link(fun () ->
+				     put(id, MyNodeId),
 				     message_passer:get_lock(add_player),
 				     try try_to_add_new_player(NodeId)
 				     after
@@ -285,18 +294,33 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	{add_player, NodeId} ->
 	    %% we can add the player
 	    %% going to add the player to the game state with an empty position
-	    message_passer:broadcast({game_logic, {add_player, NodeId}}),
-
-	    %% tell everyone to convert the player
-	    message_passer:broadcast({make_player, NodeId}),
-
-
+	    message_passer:broadcast({game_logic, {add_player, NodeId, get(id)}}),
+        
+        %% create a checklist for acks
+        #manager_state{game_info = {_,_,NodeList}} = ManagerState,
+        IdList = [Id || {Id,_,_} <- NodeList],
+        put({NodeId, addplayer},IdList),
+        
 	    game_manager_loop(ManagerState);
-	{player_added, NodeId} ->
-	    %% this is sent by the game logic when the player is added
-	    Pid = get(NodeId),
-	    Pid ! {player_added, NodeId},
-	    erase(NodeId),
+	{player_added, NodeId, AckSenderId} ->
+        %% make sure you receive acks from everyone else in the game
+        IdList = get({NodeId, addplayer}),
+        IdList1 = case IdList of
+                    undefined ->
+                        undefined;
+                    IdList -> 
+                        IdList -- [AckSenderId]
+                  end,
+        case IdList1 of
+            undefined ->
+                game_manager_loop(ManagerState);
+            [] ->
+                erase({NodeId, addplayer}),
+                
+                %% this is sent by the game logic when the player is added
+                Pid = get(NodeId),
+                Pid ! {player_added, NodeId},
+                erase(NodeId),
 
 	    %% add the player to the game server
 	    #manager_state{game_info={GameId, Name, NodeList}} = ManagerState,
@@ -308,12 +332,16 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 		    io:format("Add player failed ~p~n", [Reason]),
 		    game_manager_loop(ManagerState)
 	    end;
+        _Any ->
+              put({NodeId, addplayer}, IdList1),
+              game_manager_loop(ManagerState)
+        end;
 	{add_to_leader_queue, AddedSnakes} ->
 		LeaderQueue = ManagerState#manager_state.leader_queue,
 		NewLeaderQueue = update_leader_queue(LeaderQueue, AddedSnakes),
 		game_manager_loop(ManagerState#manager_state{leader_queue = NewLeaderQueue});
 	{check_for_leader, Pid} ->
-	    Pid ! ManagerState#manager_state.leader,
+	    Pid ! {game_manager, is_leader_result, ManagerState#manager_state.leader},
 	    game_manager_loop(ManagerState);
 	{make_leader, MyNodeId} ->
 	    %% If the nodeid is mine then make myself the leader

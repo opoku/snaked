@@ -35,7 +35,7 @@ client_start(Host, Port) ->
 
 start_server(Port) ->
     {ok, Listen} = gen_tcp:listen(Port, [binary,
-					 {packet,0},
+					 {packet,4},
 					 {reuseaddr, true},
 					 {active, true}]),
     spawn(tcp_comm, par_connect, [Port, Listen]).
@@ -58,6 +58,7 @@ par_connect(Port, Listen) ->
     end.
 
 send_msg(Pid, Msg) ->
+    %%io:format("Sending message: ~p~n", [Msg]),
     Pid ! {send, self(), Msg},
     receive
 	{Pid, Any} ->
@@ -84,7 +85,6 @@ comm_loop(#comm_state{socket=Socket, myseqno=SeqNo} = CommState) ->
 	{tcp, Socket, Data} ->
 	    %% forward to message passer
 	    Data1 = binary_to_term(Data),
-	    io:format("Received tcp data~p~n", [Data1]),
 	    message_passer ! {recvdata, self(), Data1},
 	    comm_loop(CommState);
 	{tcp_closed, Socket} ->

@@ -66,14 +66,15 @@ init(Id, GameInfo) ->
     Snakes = [#snake{id=NodeId, priority = NewPriority} || NodeId <- NodeList],
 
     GameState = #game_state{obstacles=Obstacles, myid = Id, snakes=Snakes},
-    %process_flag(trap_exit, true),
+    %%process_flag(trap_exit, true),
     put(events, []),
     put(unseen_nodes, NodeList),
     put(ticks, []),
 
+    %% populate process dictionary with expected_events
+    put(expected_events, []),
+
     snake_ui:start(GameState#game_state.size),
-    
-    io:format("DEBUG: after ui start, ~p~n", [GameState]),
     
     %% there is a queue for each snake
     ReceivedMoveQueue = [{NodeId, queue:new()} || NodeId <- NodeList ],
@@ -134,6 +135,19 @@ get_game_state() ->
         GameState
     end.
 
+count_players() ->
+    #game_state{snakes=Snakes} = get_game_state(),
+    length(Snakes).
+
+
+get_new_player_position() ->
+    game_logic ! {self(), get_new_player_position},
+    Pid = whereis(game_logic),
+    receive
+    {Pid, Pos} ->
+        Pos
+    end.
+
 update_game_state(GameState) ->
     game_logic ! {game_state, GameState},
     ok.
@@ -154,12 +168,11 @@ start_game() ->
     ok.
 
 game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
-    %%io:format("DEBUG: new game loop, received game state --> ~p~n", [GameState]),
-    io:format("DEBUG: new game loop~n"),
+    %%io:format("DEBUG: new game loop~n"),
     receive
 	{tick, NewClock, _Options} = Msg ->
 	    put(ticks, [Msg | get(ticks)]),
-	    message_passer:broadcast({game_logic, {move, MyId, NewClock-1, []}}),
+	    message_passer:broadcast({game_logic, {move, MyId, NewClock, []}}),
 	    game_loop(GameState, RMQ);
 	{move, SnakeId, _EventClock, _MoveList} = Msg ->
 	    put(events, [Msg|get(events)]),
@@ -172,7 +185,7 @@ game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
 		    io:format("I have seen all the nodes so Im telling the game manager~n"),
 		    game_manager ! {started, game_logic},
 		    receive
-			{game_state, #game_state{clock=Clock} = NewGameState} ->
+			{game_state, #game_state{clock=Clock, snakes=Snakes} = NewGameState} ->
 			    io:format("I have received the game state~n"),
 			    %% erase(Key) returns value and then erases the key
 			    %% keep all the ticks that are after the clock in
@@ -186,19 +199,26 @@ game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
 
 			    %% clears the last element in process dictionary
 			    erase(unseen_nodes),
-			    game_loop(NewGameState#game_state{myid=MyId}, RMQ)
+			    RMQ1 = [{SnakeId1, queue:new()} || #snake{id = SnakeId1} <- Snakes],
+
+			    %%explicitly display obstacles before starting the game
+			    snake_ui:display_obstacles(NewGameState#game_state.obstacles),
+
+			    game_loop(NewGameState#game_state{myid=MyId}, RMQ1)
 		    end;
 		_Any ->
 		    game_loop(GameState, RMQ)		    
 	    end;
 	{start_game} ->
+	    %%explicitly display obstacles before starting the game
+	    snake_ui:display_obstacles(GameState#game_state.obstacles),
+
 	    game_loop(GameState#game_state{state=started}, RMQ)
     end;
 
 game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
     #game_state{clock=Clock, myid = MyId} = GameState,
-    %%io:format("DEBUG: started game loop, received game state --> ~p~n", [GameState]),
-    io:format("DEBUG: started game loop~n"),
+    %%io:format("DEBUG: started game loop ~p~n", [Clock]),
     receive
 	{'EXIT', Pid, Reason} ->
 	    io:format("Pid ~p exited for reason ~p~n", [Pid, Reason]),
@@ -210,6 +230,11 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    io:format("Getstate~n"),
 	    Pid ! {self(), {GameState, ReceivedMoveQueue}},
 	    game_loop(GameState, ReceivedMoveQueue);
+	{Pid, get_new_player_position} ->
+	    %%io:format("Get New Player Position~n"),
+	    #game_state{new_player_positions=NewPos} = GameState,
+	    Pid ! {self(), NewPos},
+	    game_loop(GameState#game_state{new_player_positions=[]}, ReceivedMoveQueue);
 	{Pid, get_game_state} ->
 	    io:format("Get Game State~n"),
 	    Pid ! {self(), GameState},
@@ -219,23 +244,45 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    apply(Mod, Func, [GameState, ReceivedMoveQueue]);
 	{die} ->
 	    io:format("Game Logic Dying~n");
-	{add_player, NodeId} ->
+	{add_player, NodeId, HandlerId} ->
 	    io:format("Adding player ~p~n", [NodeId]),
+
+	    %% create a new snake in game state, create a received move queue entry
 	    #game_state{snakes=Snakes} = GameState,
 	    Snakes1 = [#snake{id=NodeId} |Snakes],
 	    NewReceivedMoveQueue = [{NodeId, queue:new()} | ReceivedMoveQueue],
+
+	    %% make the new node a player
+	    message_passer:make_player(NodeId),
+
+	    %% send back an ack after adding the player to the handler
+	    game_manager:send_to_mp(HandlerId, {player_added, NodeId, MyId}),
+
 	    game_loop(GameState#game_state{snakes=Snakes1}, NewReceivedMoveQueue);
 	{tick, NewClock, Options} ->
 	    io:format ("Received tick for clock ~p old Clock ~p~n", [NewClock, Clock]),
 	    case Clock + 1 =:= NewClock of
 		true ->
-		    io:format ("Advancing Clock~n"),
+		    Snakes = GameState#game_state.snakes,
+		    SnakeIdList = [SnakeId || #snake{id=SnakeId} <- Snakes],
+
+		    case get_missing_snakes(SnakeIdList) of
+			[] ->
+			    %% ok
+			    done;
+			MissingSnakes ->
+			    %% TODO: ask for it from other nodes or something involving a NACK
+			    io:format("DEBUG: Missing events from ~p~n", [MissingSnakes]),
+			    done
+		    end,
+
+		    %%io:format ("Advancing Clock~n"),
 		    MoveEvents = receive_all_events(),
-		    MoveMsg = {game_logic, {move, MyId, Clock, MoveEvents}},
+		    MoveMsg = {game_logic, {move, MyId, NewClock, MoveEvents}},
 
 		    %% always broadcast the events even if the movelist is empty
 		    message_passer:broadcast(MoveMsg),
-		    
+
 		    %% two possisble options so far: new food and new player positions.
 		    %% They are indexed in the options list by the atoms food and newpos
 			%% TODO Ask Osei: where is the new player position being indexed in the options list??
@@ -250,6 +297,9 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 					false ->
 					    NewGameState
 				    end,
+		    io:format("Finished generating food~n"),
+		    Snakes1 = NewGameState1#game_state.snakes, 
+		    put(expected_events, [SnakeId || #snake{id=SnakeId} <- Snakes1]),
 		    game_loop(NewGameState1, NewReceivedMoveQueue);
 
 		_Any -> % ignore other 
@@ -258,24 +308,26 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	%% TODO: check if we have received move events from all the snakes in the list
 	{move, SnakeId, []} ->
 	%% this will only match those events that are for the current clock
-	 io:format("empty movelist~n");
-	{move, _SnakeId, Clock, []} ->
-        io:format("move, empty move list~n"),
+
+	{move, SnakeId, Clock, []} ->
+	    %%io:format("move, empty move list~n"),
 	    %% an empty movelist should be ignored
+	    put(expected_events, get(expected_events) -- [SnakeId]),
 	    game_loop(GameState, ReceivedMoveQueue);
 	{move, SnakeId, Clock, MoveList} -> 
-        io:format("move, movelist--> ~p~n", [MoveList]),
+	    %%io:format("move, movelist--> ~p~n", [MoveList]),
 	    %% put this move into the queue for snakeid
 	    io:format("Snake ~p Move event received: ~p~n", [SnakeId, MoveList]),
+	    put(expected_events, get(expected_events) -- [SnakeId]),
 	    Snakes = GameState#game_state.snakes,
 	    case {game_manager:is_leader(), lists:keyfind(SnakeId, #snake.id, Snakes)} of
-		{yes, #snake{length=0}} ->
+		{true, #snake{length=0}} ->
 		    %% zero length snake and i am the leader
-			%% TODO: Think/Ask, can we generate priorities along with snake positions ??
-		    NewSnakePosList = GameState#game_state.new_player_positions, 
-		    NewSnakePosList1 = [generate_new_snake_position(SnakeId, length(NewSnakePosList)) | NewSnakePosList],
+		    NewSnakePosList = GameState#game_state.new_player_positions,
+						GridSize = GameState#game_state.size,
+		    NewSnakePosList1 = [generate_new_snake_position(SnakeId, length(NewSnakePosList), GridSize) | NewSnakePosList],
 		    game_loop(GameState#game_state{new_player_positions=NewSnakePosList1}, ReceivedMoveQueue);
-		{no, #snake{length=0}} ->
+		{false, #snake{length=0}} ->
 		    %% ignore this move
 		    game_loop(GameState, ReceivedMoveQueue);
 		{_, #snake{length=L}} when L > 0 ->
@@ -299,12 +351,35 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		game_loop(GameState#game_state{snakes = NewSnakes}, NewReceivedMoveQueue)	
     end.
 
-generate_new_snake_position(SnakeId, NumNewPlayers) ->
-    case NumNewPlayers rem 2 of
+%% this is called inside the game_loop because the expected_events atom is a key in its
+%% process dictionary
+get_missing_snakes(SnakeList) ->
+    case get(expected_events) of
+	[] ->
+	    [];
+	ExpectedEvents ->
+	    lists:filter(fun (SnakeId) -> lists:member(SnakeId, ExpectedEvents) end, SnakeList)
+    end.
+
+generate_new_snake_position(SnakeId, NumNewPlayers, {GridX, GridY}) ->
+    case NumNewPlayers rem 8 of
 	0 -> % even
 	    {SnakeId, [{3,1},{2,1},{1,1}], 'Right'};
 	1 -> % odd
-	    {SnakeId, [{1,5},{1,4},{1,3}], 'Down'}
+	    {SnakeId, [{1,5},{1,4},{1,3}], 'Down'};
+	2 -> % even
+	    {SnakeId, [{1, GridY - 2},{1, GridY - 3},{1, GridY - 4}], 'Up'};
+	3 -> % odd
+	    {SnakeId, [{5, GridY - 2},{4, GridY - 2},{3, GridY - 2}], 'Right'};
+	4 -> % even
+	    {SnakeId, [{GridX - 4, GridY - 2},{GridX - 3, GridY - 2},{GridX - 2, GridY - 2}], 'Left'};
+	5 -> % odd
+	    {SnakeId, [{GridX - 2, GridY - 6},{GridX - 2, GridY - 5},{GridX - 2, GridY - 4}], 'Up'};
+	6 -> % even
+	    {SnakeId, [{GridX - 2, 5},{GridX - 2, 4},{GridX - 2, 3}], 'Down'};
+	7 -> % odd
+	    {SnakeId, [{GridX - 6, 1},{GridX - 5, 1},{GridX - 4, 1}], 'Left'}
+
     end.
 
 process_options(GameState, [{food, NewFoods}|Rest]) ->
@@ -415,37 +490,38 @@ detect_collision(Snake, ObstacleMap) ->
     end.
 
 
-process_dead_snakes(DeadSnakes) ->
-	process_dead_snakes(DeadSnakes,[],[],[]).
+process_dead_snakes(DeadSnakes, GridSize) ->
+	process_dead_snakes(DeadSnakes,[],[],[], GridSize).
 
-process_dead_snakes([DeadSnake | OtherDeadSnakes],DeadSnakes1,RegeneratedSnakes,Results)->
+process_dead_snakes([DeadSnake | OtherDeadSnakes],DeadSnakes1,RegeneratedSnakes,Results, GridSize)->
     #snake{id=SnakeId, lives=SnakeLives} = DeadSnake,
     case SnakeLives > 0 of
 	true ->
 	    SnakeLivesLeft = SnakeLives - 1,
 	    %%TODO: use a better border generate function%
-	    NewPosition = in({1,1},in({2,1},in({3,1},queue:new()))),
-	    NewSnake = DeadSnake#snake{lives=SnakeLivesLeft,position=NewPosition,direction='Right',length=3},
+					{SnakeId, NewPosition, Dir}  = generate_new_snake_position(SnakeId, length(RegeneratedSnakes), GridSize), 
+	    %%NewPosition = in({1,1},in({2,1},in({3,1},queue:new()))),
+	    NewSnake = DeadSnake#snake{lives=SnakeLivesLeft,position=queue:from_list(NewPosition),direction = Dir,length=length(NewPosition)},
 	    Results1 = [{regenerated,SnakeId} | Results],
 	    RegeneratedSnakes1 = [NewSnake | RegeneratedSnakes],
-	    process_dead_snakes(OtherDeadSnakes,DeadSnakes1,RegeneratedSnakes1,Results1);
+	    process_dead_snakes(OtherDeadSnakes,DeadSnakes1,RegeneratedSnakes1,Results1, GridSize);
 	false ->
 	    Results1 = [{killed,SnakeId} | Results],
 	    DeadSnakes2 = [DeadSnake | DeadSnakes1],
 		%% TODO: remove from the leader queue, the snakes that are killed
 		game_manager:remove_from_leader_queue(SnakeId),
-	    process_dead_snakes(OtherDeadSnakes,DeadSnakes2,RegeneratedSnakes,Results1)
+	    process_dead_snakes(OtherDeadSnakes,DeadSnakes2,RegeneratedSnakes,Results1, GridSize)
     end;
 
-process_dead_snakes([],DeadSnakes1,RegeneratedSnakes,Results)->
+process_dead_snakes([],DeadSnakes1,RegeneratedSnakes,Results, _GridSize)->
     {DeadSnakes1,RegeneratedSnakes,Results}.
 
 evaluate_obstacles(GS) ->
     %% returns {GS1, Results}
-    #game_state{snakes=Snakes, obstacles=Obs} = GS,
+    #game_state{snakes=Snakes, obstacles=Obs, size = GridSize} = GS,
     ObstacleMap = build_obstacle_map(Snakes ++ Obs),
     {DeadSnakes, AliveSnakes} = lists:partition(fun(Snake) -> detect_collision(Snake, ObstacleMap) end, Snakes),
-	{_DeadSnakes1,RegeneratedSnakes,Results} = process_dead_snakes(DeadSnakes),
+	{_DeadSnakes1,RegeneratedSnakes,Results} = process_dead_snakes(DeadSnakes, GridSize),
 	AliveSnakes1 = AliveSnakes ++ RegeneratedSnakes,
     {GS#game_state{snakes=AliveSnakes1}, Results}.
 

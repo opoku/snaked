@@ -1,5 +1,5 @@
 -module(snake_ui).
--export([start/1, display/2, start_gui/1, stop/0]).
+-export([start/1, display/2, start_gui/1, stop/0, display_obstacles/1]).
 -include("game_state.hrl").
 
 
@@ -21,6 +21,8 @@ start_gui({X,Y}) ->
     Food_List = [],
     Obstacle_List = [],
     Messages_List = [],
+    Colors_List = [{red,none},{blue,none},{green,none},{yellow,none},{orange,none},{pink,none},{purple,none},{brown,none}],
+    put(list_Of_Colors, Colors_List),
     %%dont_end().
 
     loop(Can,Snakes_List,Obstacle_List,Food_List,Messages_List).
@@ -68,20 +70,22 @@ loop(Can,Snakes_List,Obstacle_List,Food_List,Messages_List)->
 	    loop(Can,Snakes_List1, Obstacle_List, Food_List,Messages_List)
     end.
 
+display_obstacles(Obstacles) ->
+    snake_ui ! {display_obstacles, Obstacles}.
 
-display(#game_state{snakes = Snakes, obstacles = Obstacles, foods = Food, size = Size, clock = Tick} = GameState, Results) ->
+display(#game_state{snakes = Snakes, obstacles = _Obstacles, foods = Food, size = _Size, clock = _Tick}, _Results) ->
     %% do something with results
     %% Results is a list contains tuples like
     %% {killed, SnakeId} | {eaten, }
 
     %%io:format("GameState: ~p  Results : ~p~n", [GameState, Results]),
 
-    if
-	Tick < 2 ->
-	    snake_ui ! {display_obstacles, Obstacles};
-	true ->
-	    done
-    end,
+    %%if
+	%%Tick < 2 ->
+	%%    snake_ui ! {display_obstacles, Obstacles},
+	%%true ->
+	  %%  done
+    %%end,
     snake_ui ! {display_food, Food},
     snake_ui ! {display_snakes, Snakes},
     done.
@@ -91,8 +95,8 @@ add_snake(Id, Coords, Can, Snakes_List) ->
     Snake = gs:create(line, Can, [{coords,New_coords},{width, 10}]),
     [{Id, Snake}|Snakes_List].
 
-get_snake(Id, Snakes_List)->
-    lists:keyfind(Id,1,Snakes_List).
+%%get_snake(Id, Snakes_List)->
+%%    lists:keyfind(Id,1,Snakes_List).
 
 
 resize(Coords)->
@@ -112,10 +116,10 @@ obstacles(#object{type = obstacle, position = Coords},Can)->
 	          [{X,Y}] -> [{X,Y},{X,Y}];
 		  _Default -> Coords
 	      end, 		
-    gs:create(line, Can, [{coords,resize(Coords)},{fg,black},{width,10}]).
+    gs:create(line, Can, [{coords,resize(Coords1)},{fg,black},{width,10}]).
 
 display_food(List,Can)->
-    io:format("display food called... ~nFoodlist ~p~n", [List]),
+    %%io:format("display food called... ~nFoodlist ~p~n", [List]),
     lists:map(fun(X) -> food(X,Can) end, List).
 
 food(#food{position = [{X,Y}]}, Can)->
@@ -123,29 +127,46 @@ food(#food{position = [{X,Y}]}, Can)->
     gs:create(rectangle, Can, [{coords,[{X1-5,Y1-5},{X1+5,Y1+5}]},{fg,green}, {fill,green}]).
 
 display_snakes(List,Can)->
-    lists:map(fun(X)->snak(X,Can) end, List).
+    lists:delete({false}, lists:map(fun(X)-> snak(X,Can) end, List)).
 
-snak(#snake{position = P},Can)->
+
+snak(#snake{position = P,id = Id},Can)->
     Coords = queue:to_list(P),
     Len = length(Coords),
-    Coords1 = case Len of
+    Colors_List = get(list_Of_Colors),
+    Color_Tuple = lists:keysearch(Id, 2, Colors_List),
+    case Color_Tuple of
+	{value, Snake_Color} -> {Color,_} = Snake_Color,
+			New_Colors_List = Colors_List;
+	false -> {value,New_Snake_Color} = lists:keysearch(none,2,Colors_List),
+			{Color, none} = New_Snake_Color,
+		     	New_Colors_List = lists:keyreplace(Color,1,Colors_List,{Color,Id})
+	end,
+    erase(list_Of_Colors),
+    put(list_Of_Colors, New_Colors_List),
+    case Len of
 	1 -> [{X,Y}] = Coords,
-	     [{X,Y},{X,Y}];
-	_Default-> Coords	 
-    end,
-    gs:create(line, Can, [{coords,resize(Coords1)}, {fg,cyan},{width, 10}]).
+	     Coords1 = [{X,Y},{X,Y}],
+	     Ret = gs:create(line, Can, [{coords,resize(Coords1)}, {fg,Color},{width, 10}]);
+	0 -> Ret = false;
 
-display_snakes(List, Can, Snakes_List)->
-    io:format("display snakes called~n",[]),
-    lists:map(fun(X) -> snake(X,Can,Snakes_List) end, List).
+	_Default-> 
+	     Ret = gs:create(line, Can, [{coords,resize(Coords)}, {fg,Color},{width, 10}])
+    end,
+    Ret.
+    
+
+%%display_snakes(List, Can, Snakes_List)->
+%%    io:format("display snakes called~n",[]),
+%%    lists:map(fun(X) -> snake(X,Can,Snakes_List) end, List).
 
 
 %%snake(#snake{id = Id, direction = _, position = P, length =_, changed = false},Can,Snakes_List)->;
 
-snake(#snake{id = Id, position = P},Can, Snakes_List)->
-    {Id,Snake} = lists:keyfind(Id,1,Snakes_List),
-    Coords = resize(P),
-    gs:config(Snake, Can, [coords,Coords]).
+%%snake(#snake{id = Id, position = P},Can, Snakes_List)->
+%%    {Id,Snake} = lists:keyfind(Id,1,Snakes_List),
+%%    Coords = resize(P),
+%%    gs:config(Snake, Can, [coords,Coords]).
 
 display_messages(List,Can)->	
     %%lists:map(fun(X)-> message(X,Can) end, List).
