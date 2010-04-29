@@ -1,5 +1,6 @@
 -module(message_passer).
 -compile([export_all]).
+-include("common.hrl").
 
 -import(queue, [out/1, in/2]).
 
@@ -45,13 +46,19 @@ start(Port, MyId, HostList) ->
     spawn(fun() ->
 		  message_passer ! {listen, Port},
 		  lists:foreach(fun ({Host, HostPort}) -> connect(Host, HostPort) end, [{{127,0,0,1}, Port}| HostList]),
-		  io:format("Finished connecting~n")
+		  ?LOG("Finished connecting~n",[])
 	  end),
     Pid.
     
 stop() ->
     kill_comm_processes(),
-    message_passer ! {die}.
+    message_passer ! {die, self()},
+    receive
+	{message_passer, dead} ->
+	    done
+    after 10000 ->
+	    timeout
+    end.
 
 server(Port, MyId) ->
     %% don't die when you receive exit messages from your comms
@@ -135,7 +142,7 @@ compare({MyId1, NwTimeStamp1}, {MyId2,NwTimeStamp2}) ->
 %% this is primarily called when a message needs to be sent to other processes like
 %% game_logic
 route_message(Msg) ->
-    %%io:format("Route message ~p~n", [Msg]),
+    %%?LOG("Route message ~p~n", [Msg]),
     case Msg of
 	{game_logic, Body} ->
 	    game_logic ! Body;
@@ -147,7 +154,7 @@ route_message(Msg) ->
     
 
 route_message(_HostId, Msg) ->
-    %%io:format("Route Message ~p from ~p~n", [Msg, HostId]),
+    %%?LOG("Route Message ~p from ~p~n", [Msg, HostId]),
     route_message(Msg).
 
 find_source_message({Source,MsgId},[{_,_,Source,MsgId}| _AckList]) -> found;
@@ -165,12 +172,12 @@ is_guest(#host_info{status=guest}) ->
     true.
 
 usend(Id, Msg, RegisteredList) ->
-    io:format("--------------------Sending unicast message to id ~p : ~p~n", [Id, Msg]),
+    ?LOG("--------------------Sending unicast message to id ~p : ~p~n", [Id, Msg]),
     #host_info{pid=Pid} = lists:keyfind(Id, #host_info.nodeid, RegisteredList),
     ok = tcp_comm:send_msg(Pid, Msg).
 
 bsend(Msg, RegisteredList) ->
-    io:format("--------------------Sending broadcast message : ~p to ~p~n", [Msg, RegisteredList]),
+    ?LOG("--------------------Sending broadcast message : ~p to ~p~n", [Msg, RegisteredList]),
     lists:foreach(fun (#host_info{pid=Pid}) -> ok = tcp_comm:send_msg(Pid, Msg)
 		  end, RegisteredList).
 
@@ -179,16 +186,16 @@ loop(ServerState) ->
 	%% communication with processes
 	{recvdata, Pid, Data} ->
 	    %% recv'd data from external node.. lets decide what do with it
-	    io:format("------Received message ~p~n", [Data]),
+	    ?LOG("------Received message ~p~n", [Data]),
 	    case Data of 
 		{register, NodeId, Port} ->
 		    Ip = tcp_comm:get_host_ip(Pid),
-		    io:format("Registering nodeid ~p:~p~p~n", [NodeId, Ip, Port]),
+		    ?LOG("Registering nodeid ~p:~p~p~n", [NodeId, Ip, Port]),
 		    #server_state{registered_list = RegisteredList, msg_tracker = MessageTrackingList, connect_wait_queue = ConnectWaitQueue} = ServerState,
 		    NewRegisteredList = case lists:keyfind(NodeId, #host_info.nodeid, RegisteredList) of
 					    #host_info{nodeid=NodeId} ->
 						%% node id already exists so tell new connection to select a new id
-						io:format("Nodeid ~p already exists~n", [NodeId]),
+						?LOG("Nodeid ~p already exists~n", [NodeId]),
 						%%ok = tcp_comm:send_msg(Pid, {error, nodeid_exists, NodeId}),
 						case lists:keyfind({Ip, Port}, 2, ConnectWaitQueue) of
 						    {Pid2, {HostIP, HostPort}} ->
@@ -212,11 +219,11 @@ loop(ServerState) ->
 		    NewMessageTrackingList = lists:keystore(NodeId, 1, MessageTrackingList, {NodeId, -1}),
 		    loop(ServerState#server_state{registered_list = NewRegisteredList, msg_tracker = NewMessageTrackingList});
 		_Any ->
-		    %%io:format("recvdata ~p~n",[Data]),
+		    %%?LOG("recvdata ~p~n",[Data]),
 		    case lists:keyfind(Pid, #host_info.pid, ServerState#server_state.registered_list) of
 			false ->
 			    %% should not happend
-			    io:format("I have been sent a network message from a process ~p I dont recognize~n", [Pid]);
+			    ?LOG("I have been sent a network message from a process ~p I dont recognize~n", [Pid]);
 			#host_info{status=player} ->
 			    %% only route all messages from players
 			    route_message(Data);
@@ -230,7 +237,7 @@ loop(ServerState) ->
 				{game_manager, {ok, NodeId}} ->
 				    route_message(Data);
 				_Any ->
-				    io:format("Dropping messsage ~p from guest ~p~n", [Data, NodeId])
+				    ?LOG("Dropping messsage ~p from guest ~p~n", [Data, NodeId])
 			    end
 		    end,
 		    loop(ServerState)
@@ -245,9 +252,9 @@ loop(ServerState) ->
 		{value, #host_info{nodeid=NodeId, pid=Pid, host=Host, port=Port}, NewRegisteredList} ->
 		    case Reason of
 			socketclosed ->
-			    io:format("Socket for ~p{~p:~p} closed~n", [NodeId, Host, Port]);
+			    ?LOG("Socket for ~p{~p:~p} closed~n", [NodeId, Host, Port]);
 			_Any ->
-			    io:format("Some other reason for exiting (~p)~n", [Reason]),
+			    ?LOG("Some other reason for exiting (~p)~n", [Reason]),
 			    nothing
 		    end,
 		    loop(ServerState#server_state{registered_list = NewRegisteredList});
@@ -261,17 +268,17 @@ loop(ServerState) ->
 				      end, PidList),
 	    loop(ServerState#server_state{pid_list = NewPidList});
 	{listen, Port} ->
-	    io:format("Start Server~n"),
+	    ?LOG("Start Server~n",[]),
 	    tcp_comm:start_server(Port),
 	    loop(ServerState);
 	{connect, ConnectingNodeId, Host, Port} ->
-	    io:format("Request for connect from~p~n", [ConnectingNodeId]),
+	    ?LOG("Request for connect from~p~n", [ConnectingNodeId]),
 	    ConnectWaitQueue = ServerState#server_state.connect_wait_queue,
 	    NewConnectWaitQueue = [{ConnectingNodeId, {Host, Port}}|ConnectWaitQueue],
 	    tcp_comm:start_client(Host,Port),
 	    loop(ServerState#server_state{connect_wait_queue=NewConnectWaitQueue});
 	{disconnect, NodeId} ->
-	    io:format("Request to disconnect from ~p~n", [NodeId]),
+	    ?LOG("Request to disconnect from ~p~n", [NodeId]),
 	    RegisteredList = ServerState#server_state.registered_list,
 	    case lists:keytake(NodeId, #host_info.nodeid, RegisteredList) of
 		{value, #host_info{pid=Pid}, NewRegisteredList} ->
@@ -305,7 +312,7 @@ loop(ServerState) ->
 	%% multicast patterns
 	{multicast, Msg} ->
 	    %% reliable multicast
-	    io:format("Sending multicast message : ~p~n", [Msg]),
+	    ?LOG("Sending multicast message : ~p~n", [Msg]),
 	    RegisteredList = lists:filter(fun is_player/1, ServerState#server_state.registered_list),
 	    TimeStamp = ServerState#server_state.timestamp,
 	    MsgId = ServerState#server_state.msgid,
@@ -320,7 +327,7 @@ loop(ServerState) ->
 	    %% 	   bsend({ack, MyNode, Msgid})
 	    %% maybe exclude Me in acklist
 	    %% 
-	    io:format("Processing Multicast message from ~p ~n", [McastMsg]),
+	    ?LOG("Processing Multicast message from ~p ~n", [McastMsg]),
 	    #server_state{myid=Me, timestamp=MyTimeStamp, acklist=PrevAckList, registered_list = RegisteredList, msg_tracker = MessageTrackingList} = ServerState,
 
 	    %%update message tracker
@@ -352,11 +359,11 @@ loop(ServerState) ->
 	    %% sort the hold queue, based on the logical timestamps
 	    SortedHQ = lists:sort(fun compare/2, NewHQ),
 
-	    io:format("Contents of Hold queue ~p~n", [SortedHQ]),
+	    ?LOG("Contents of Hold queue ~p~n", [SortedHQ]),
 
 	    loop(ServerState#server_state{acklist=AllAckList, timestamp=NewTimeStamp1, hold_queue = SortedHQ, msg_tracker = NewMessageTrackingList});
 	{ack, _AckNode, Source, MsgId} = Ack ->
-	    io:format("Received ack ~p~n", [Ack]),
+	    ?LOG("Received ack ~p~n", [Ack]),
 
 	    MessageTrackingList = ServerState#server_state.msg_tracker,
 	    {Source, LastMId} = lists:keyfind(Source, 1, MessageTrackingList),
@@ -375,10 +382,10 @@ loop(ServerState) ->
 		    case find_source_message({Source,MsgId}, NewAckList) of
 
 			found ->
-			    io:format("Waiting for acks from the Registered List~n"),
+			    ?LOG("Waiting for acks from the Registered List~n",[]),
 			    loop(ServerState#server_state{acklist = NewAckList});
 			not_found ->
-			    io:format("Processing the message~n"),
+			    ?LOG("Processing the message~n",[]),
 			    case HoldQueue of
 				[] ->
 				    %% holdqueue is empty so just loop back around and ignore ack
@@ -391,10 +398,10 @@ loop(ServerState) ->
 							   %% process the message
 							   case Msg of 
 							       {lockRequest,ResourceId} ->
-								   io:format("Forwarding lock Request~n"),
+								   ?LOG("Forwarding lock Request~n",[]),
 								   message_passer ! {lockRequest,HostId,MsgTimeStamp,ResourceId};
 							       Any ->
-								   io:format("Normal Multicast : ~p~n",[Any]),
+								   ?LOG("Normal Multicast : ~p~n",[Any]),
 								   route_message(Source, Any)
 							   end,
 							   Rest;
@@ -409,7 +416,7 @@ loop(ServerState) ->
 	%% locking patterns
 
 	{getLock, Pid, ResourceId} ->
-	    io:format("CAlling Getlock for ~p~n", [ResourceId]),
+	    ?LOG("CAlling Getlock for ~p~n", [ResourceId]),
 	    LockStateList = ServerState#server_state.lock_state_list,
 	    MyNodeId = ServerState#server_state.myid,
 	    RegisteredList = ServerState#server_state.registered_list,
@@ -428,7 +435,7 @@ loop(ServerState) ->
 		    loop(ServerState)
 	    end;
 	{releaseLock, Pid, ResourceId} ->
-	    io:format("CAlling releaseLock for ~p~n", [ResourceId]),
+	    ?LOG("CAlling releaseLock for ~p~n", [ResourceId]),
 	    LockStateList = ServerState#server_state.lock_state_list,
 	    MyNodeId = ServerState#server_state.myid,
 	    case lists:keyfind(ResourceId, 1, LockStateList) of
@@ -448,7 +455,7 @@ loop(ServerState) ->
 	    end;
  	{lockRequest, HostId, ReqTimeStamp, ResourceId} = RequestMsg ->
 	    %%	    {resourceid, lock_state}
-	    io:format("Received lockRequest ~p~n", [RequestMsg]),
+	    ?LOG("Received lockRequest ~p~n", [RequestMsg]),
 	    LockStateList = ServerState#server_state.lock_state_list,
 	    {ResourceId, LockState, RequestQueue, ReplyList, Pid} =
 		case lists:keyfind(ResourceId, 1, LockStateList) of
@@ -499,7 +506,7 @@ loop(ServerState) ->
  	{lockReply, NodeId, HostId, ResourceId} ->
 	    %% for each node in the hostlist, check if OK reply received,
 	    %% if true, takelock(),else loop back
-	    io:format("Received a lockReply from ~p~n", [NodeId]),
+	    ?LOG("Received a lockReply from ~p~n", [NodeId]),
 	    LockStateList = ServerState#server_state.lock_state_list,
 	    {ResourceId, LockState, RequestQueue, ReplyList, ReqPid} = lists:keyfind(ResourceId, 1, LockStateList),
 	    LReply2 = [{lockReply, NodeId, HostId}],
@@ -519,7 +526,7 @@ loop(ServerState) ->
 
 	%% debugging patterns
 	{become, Mod, NewLoopFun} ->
-	    io:format("Running a new loop function ~p:~p~n", [Mod, NewLoopFun]),
+	    ?LOG("Running a new loop function ~p:~p~n", [Mod, NewLoopFun]),
 	    %% check whether newloop is a real function before calling it.
 	    {current_function, {_Module, _Fun, Arity}}  = erlang:process_info(self(), current_function),
 	    case erlang:function_exported(Mod, NewLoopFun, Arity) of
@@ -528,8 +535,10 @@ loop(ServerState) ->
 		false ->
 		    loop(ServerState)
 	    end;
-	{die} ->
-	    io:format("message_passer closing...~n");
+	{die, Pid} ->
+	    ?LOG("message_passer closing...~n",[]),
+	    Pid ! {message_passer, dead},
+	    done;
 	{debug, Pid} ->
 	    Pid ! {message_passer, ServerState},
 	    loop(ServerState);
@@ -570,19 +579,19 @@ loop(ServerState) ->
 	    RegisteredList = ServerState#server_state.registered_list,
 	    NewRegisteredList = case lists:keyfind(NodeId, #host_info.nodeid, RegisteredList) of
 				    #host_info{status=guest} = HostInfo ->
-					io:format("Making ~p a player~n", [NodeId]),
+					?LOG("Making ~p a player~n", [NodeId]),
 					HostInfo1 = HostInfo#host_info{status=player},
 					lists:keystore(NodeId, #host_info.nodeid, RegisteredList, HostInfo1);
 				    #host_info{status=player} ->
-					io:format("~p is already a player~n", [NodeId]),
+					?LOG("~p is already a player~n", [NodeId]),
 					RegisteredList;
 				    false ->
-					io:format("Player Id ~p is not found~n", [NodeId]),
+					?LOG("Player Id ~p is not found~n", [NodeId]),
 					RegisteredList
 				end,
 	    loop(ServerState#server_state{registered_list=NewRegisteredList});
 	Any ->
-	    io:format("Ignoring unmatched message ~p~n", [Any]),
+	    ?LOG("Ignoring unmatched message ~p~n", [Any]),
 	    loop(ServerState)
     end.
 
@@ -636,7 +645,7 @@ ping_test(Count, TimeOut) ->
 ping_test(Count, Count, TimeOut) ->
     RecvList = receive_pongs(TimeOut, []),
     Sum = lists:sum([I || {_, I} <- RecvList]),
-    io:format("Number of Messages Received ~p~n", [Sum]),
+    ?LOG("Number of Messages Received ~p~n", [Sum]),
     unregister(pong_listener);
 	    
 ping_test(I, Count, Timeout) ->

@@ -5,6 +5,8 @@
 
 -module(udp_comm).
 -compile([export_all]).
+-include("common.hrl").
+
 
 -record(comm_state,
        {socket,
@@ -31,19 +33,19 @@ start_server(Port) ->
     spawn(tcp_comm, par_connect, [Port, Listen]).
 
 par_connect(Port, Listen) ->
-    io:format("Waiting for connection~n"),
+    ?LOG("Waiting for connection~n",[]),
     %% when message_passer dies this returns with {error, closed} so we have to handle
     %% this somewhere
     case gen_tcp:accept(Listen) of
 	{ok, Socket} ->
-	    io:format("Connected on Socket ~p~n", [Socket]),
+	    ?LOG("Connected on Socket ~p~n", [Socket]),
 	    spawn(tcp_comm, par_connect, [Port, Listen]),
 	    %% send your node id to client
 	    message_passer ! {comm_started, self()},
 	    send_node_id(),
 	    comm_loop(#comm_state{socket=Socket});
 	{error, Reason} ->
-	    io:format("Error on listen Socket ~p(~p). Not relistening~n", [Listen, Reason])
+	    ?LOG("Error on listen Socket ~p(~p). Not relistening~n", [Listen, Reason])
 	    %%start_server(Port)
     end.
 
@@ -95,39 +97,39 @@ comm_loop(#comm_state{socket=Socket, myseqno=SeqNo, otherseqno=LastSeqNo, resend
 	{tcp, Socket, Data} ->
 	    %% forward to message passer
 	    Data1 = binary_to_term(Data),
-	    io:format("Received tcp data~p~n", [Data1]),
+	    ?LOG("Received tcp data~p~n", [Data1]),
 	    case Data1 of
 		{ack, AckSeqNo} ->
 		    case lists:keytake(AckSeqNo, 2, ResendList) of
 			{value, {Pid, AckSeqNo}, NewResendList} ->
 			    Pid ! cancel,
-			    io:format("Cancelling resend for seqno~p~n", [AckSeqNo]),
+			    ?LOG("Cancelling resend for seqno~p~n", [AckSeqNo]),
 			    comm_loop(CommState#comm_state{resendlist = NewResendList});
 			false ->
-			    io:format("Ignoring ack for seqno~p~n", [AckSeqNo]),
+			    ?LOG("Ignoring ack for seqno~p~n", [AckSeqNo]),
 			    comm_loop(CommState)
 		    end;
 		{RecvSeqNo, Msg} ->
 		    gen_tcp:send(Socket, term_to_binary({ack, RecvSeqNo})),
-		    io:format("Ack sent for ~p~n", [RecvSeqNo]),
+		    ?LOG("Ack sent for ~p~n", [RecvSeqNo]),
 		    case RecvSeqNo > LastSeqNo of
 			true ->
-			    io:format("TCP received message ~p~n", [Msg]),
+			    ?LOG("TCP received message ~p~n", [Msg]),
 			    message_passer ! {recvdata, self(), Msg},
 			    comm_loop(CommState#comm_state{otherseqno = RecvSeqNo});
 			false ->
-			    io:format("Duplicate message with ack ~p so ignoring~n", [RecvSeqNo]),
+			    ?LOG("Duplicate message with ack ~p so ignoring~n", [RecvSeqNo]),
 			    comm_loop(CommState)
 		    end
 	    end;
 	{tcp_closed, Socket} ->
 	    %% this may be an error.  should we try to reconnect or just tell message
 	    %% passer that we are going to die?
-	    io:format("Socket ~p closed~n", [Socket]),
+	    ?LOG("Socket ~p closed~n", [Socket]),
 	    %% this exit tells message passer that we are dying.  message passer will handle the rest
 	    exit(socketclosed);
 	{send, Pid, Data} ->
-	    io:format("Sending message ~p with seqno~p [~p to ~p]~n", [Data, SeqNo, inet:sockname(Socket), inet:peername(Socket)]),
+	    ?LOG("Sending message ~p with seqno~p [~p to ~p]~n", [Data, SeqNo, inet:sockname(Socket), inet:peername(Socket)]),
 	    BinData = term_to_binary({SeqNo, Data}),
 	    Result = gen_tcp:send(Socket, BinData),
 	    Pid ! {self(), Result},
@@ -138,7 +140,7 @@ comm_loop(#comm_state{socket=Socket, myseqno=SeqNo, otherseqno=LastSeqNo, resend
 	{resend, Pid, BinData} ->
 	    Result = gen_tcp:send(Socket, BinData),
 	    {ReSeqNo, _Msg} = binary_to_term(BinData),
-	    io:format("Resending msg for seq~p on Socket ~p ~n", [ReSeqNo, Socket]),
+	    ?LOG("Resending msg for seq~p on Socket ~p ~n", [ReSeqNo, Socket]),
 	    Pid ! {self(), Result},
 	    comm_loop(CommState);
 	{getip, Pid} ->
@@ -150,6 +152,6 @@ comm_loop(#comm_state{socket=Socket, myseqno=SeqNo, otherseqno=LastSeqNo, resend
 		    Pid ! {self(), Reason}
 	    end;
 	{debug} ->
-	    io:format("Debug info:~p", [CommState]),
+	    ?LOG("Debug info:~p", [CommState]),
 	    comm_loop(CommState)
     end.    

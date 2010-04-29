@@ -1,5 +1,6 @@
 -module(game_manager).
 -compile([export_all]).
+-include("common.hrl").
 
 -define(MAX_PLAYERS, 8).
 
@@ -15,41 +16,60 @@ start([MyNodeId, Port]) ->
     start(MyNodeIdAtom, PortNum).
 
 start(MyNodeId, Port) ->
-    spawn(game_manager, init, [MyNodeId, Port]).
+    Pid = spawn(game_manager, init, [MyNodeId, Port]),
+    register(game_manager, Pid).
+
+debug() ->
+    game_manager ! {debug, self()},
+    receive
+	{game_manager, Any} ->
+	    Any
+    end.
+
+game_monitor(GameId, NodeId, Port) ->
+    MonRef = erlang:monitor(process, game_manager),
+    receive
+	{'DOWN', MonRef, process, _Name, Info } ->
+	    ?LOG("Game manager down: ~p.  Removing from game_server~n", [Info]),
+	    send_message_to_game_server({set, remove_player, {GameId, {NodeId, {127,0,0,1}, Port}}})
+    end.
 
 init(MyNodeId, DefaultPort) ->
     put(id, MyNodeId),
-
+    put(defaultport, DefaultPort),
     %%DefaultPort = 5555,
     %%Invoke message passer.
 
     message_passer:start(DefaultPort, MyNodeId, []),
-    register(game_manager, self()),
     process_flag(trap_exit, true),
 
     %%Try to join an existing game.
     case join_game() of 
-	{ok, GameInfo, GameState} ->
+	{ok, {GameId, _, _} = GameInfo, GameState} ->
 	    %%If you joined a game, you will receive the game state from the current game.
+	    spawn(game_manager, game_monitor, [GameId, MyNodeId, DefaultPort]),
 	    game_logic:update_game_state(GameState),
+
 	    game_manager_loop(#manager_state{nodeid = MyNodeId, game_info=GameInfo});
 
 	fail -> 
 	    %%If you can't join the game, you start a new game and become a leader.
-	    {_GameId, _Name, NodeList} = GameInfo = create_new_game("DefaultName"),
+	    {GameId, _Name, NodeList} = GameInfo = create_new_game("DefaultName"),
+	    spawn(game_manager, game_monitor, [GameId, MyNodeId, DefaultPort]),
+
 	    clock:start(),
 	    game_logic:start(MyNodeId, [NodeId || #host_info{id=NodeId} <- NodeList]),
 	    game_logic:start_game(),
-	    io:format("Starting the game manager loop~n"),
+
+	    ?LOG("Starting the game manager loop~n",[]),
 	    game_manager_loop(#manager_state{nodeid=MyNodeId, game_info=GameInfo, leader=true})
     end.
 
 create_new_game(Name) ->
-    io:format("Creating a new game ~p~n", [Name]),
+    ?LOG("Creating a new game ~p~n", [Name]),
     MyNodeId = get(id),
     {gameid, GameId} = send_message_to_game_server({set, add_game, Name}),
-    {MyNodeId, _HostIp, Port} = message_passer:get_host_info(MyNodeId),
-    {ok, player_added} = send_message_to_game_server({set, add_player, {GameId, {MyNodeId, self, Port}}}),
+    add_player_to_game_server(GameId, MyNodeId),
     message_passer:make_player(MyNodeId),
     {GameId, Name, [#host_info{id=MyNodeId, priority=1}]}.
     
@@ -73,7 +93,14 @@ update_leader_queue(LeaderQueue, []) ->
 	LeaderQueue.
 
 remove_from_game_info(SnakeId) ->
-    game_manager ! {remove_from_game_info, SnakeId}.
+    game_manager ! {remove_from_game_info, self(), SnakeId},
+    receive
+	{game_manager, removed_from_game_info, SnakeId} ->
+	    ok;
+	{game_manager, error, Reason, SnakeId} ->
+	    ?LOG("Error removing ~p : ~p", [Reason, SnakeId]),
+	    error
+    end.
 
 join_game() ->
     %% get game list
@@ -95,18 +122,37 @@ select_next_game([{GameId, _Name, Length} = FirstGame| RestGames]) when Length <
     case send_message_to_game_server({get, game, GameId}) of
 	%% could not find the game information on server
 	{error, Reason} ->
-	    io:format("Could not join game ~p : ~p", [FirstGame, Reason]),
+	    ?LOG("Could not join game ~p : ~p", [FirstGame, Reason]),
 	    select_next_game(RestGames);
 	%% try to join the game
 	GameInfo ->
-	    io:format("Attempting to join game ~p~n", [GameId]),
+	    ?LOG("Attempting to join game ~p~n", [GameId]),
 	    attempt_to_join_game(GameInfo)
     end;
 select_next_game([_FirstGame | RestOfGames]) ->
     select_next_game(RestOfGames);
 select_next_game([]) ->
-    io:format("No games left~n"),
+    ?LOG("No games left~n",[]),
     fail.
+
+add_player_to_game_server(GameId, NodeId) ->
+    HostInfo = message_passer:get_host_info(NodeId),
+    case send_message_to_game_server({set, add_player, {GameId, HostInfo}}) of
+	{ok, player_added} ->
+	    ?LOG("Adding player to game server succeeded~n",[]);
+	{error, Reason} ->
+	    ?LOG("Add player failed ~p~n", [Reason])
+    end.
+
+remove_player_from_game_server(GameId, NodeId) ->
+    HostInfo = message_passer:get_host_info(NodeId),
+    case send_message_to_game_server({set, remove_player, {GameId, HostInfo}}) of
+	{ok, player_removed} ->
+	    ?LOG("Removed player from game server succeeded~n",[]);
+	{error, Reason} ->
+	    ?LOG("Remove player failed ~p~n", [Reason])
+    end.
+
 
 send_message_to_game_server(Msg) ->
     {ServerHost, ServerPort} = get_server_info(),
@@ -117,7 +163,7 @@ get_server_info() ->
 	undefined ->
 	    {Root, _Options} = filename:find_src(game_manager),
 	    PathToConfigFile = filename:absname_join(filename:dirname(Root), "../resources/server-config.txt"),
-	    io:format("config file path: ~p~n", [PathToConfigFile]),
+	    ?LOG("config file path: ~p~n", [PathToConfigFile]),
 	    {ok, [ServerHost,ServerPort]} = file:consult(PathToConfigFile),
 	    ServerInfo = {ServerHost, ServerPort},
 	    put(server_info, ServerInfo),
@@ -141,11 +187,6 @@ stop() ->
     catch (game_logic:stop()),
     catch (message_passer:stop()).
 
-start_game_manager(ManagerState) ->
-    register(game_manager, self()),
-    process_flag(trap_exit, true),
-    game_manager_loop(ManagerState).
-
 try_to_add_new_player(NodeId) ->
     PlayerCount = game_logic:count_players(),
     case PlayerCount < ?MAX_PLAYERS of
@@ -160,9 +201,9 @@ try_to_add_new_player(NodeId) ->
 	    game_manager ! {add_player, NodeId},
 	    receive
 		{player_added, NodeId} ->
-		    io:format("Player ~p has been added so release the lock ~n", [NodeId]);
+		    ?LOG("Player ~p has been added so release the lock ~n", [NodeId]);
 		{error, Reason} ->
-		    io:format("Failed to add player: ~p~n", [Reason])
+		    ?LOG("Failed to add player: ~p~n", [Reason])
 	    end;
 	false ->
 	    %% cannot add player
@@ -178,7 +219,7 @@ broadcast_to_mp(Msg) ->
 join_loop(GameInfo, start) ->
     receive
 	{hi, NodeId} ->
-	    io:format("Received hi from ~p~n", [NodeId]),
+	    ?LOG("Received hi from ~p~n", [NodeId]),
 	    send_to_mp(NodeId, {join, get(id)}),
 	    join_loop(GameInfo, {connected, NodeId})
     after
@@ -195,11 +236,11 @@ join_loop(GameInfo, {connected, NodeId}) ->
 	    send_to_mp(NodeId, {ok, get(id)}),
 	    join_loop(GameInfo, {connected, NodeId});
 	{started, game_logic} ->
-	    io:format("Received all the messages from nodes in the game~n"),
+	    ?LOG("Received all the messages from nodes in the game~n",[]),
 	    send_to_mp(NodeId, {joined, get(id)}),
 	    join_loop(GameInfo, {joined, NodeId});
 	{error, Reason} ->
-	    io:format("Cannot join game: ~p~n", [Reason]),
+	    ?LOG("Cannot join game: ~p~n", [Reason]),
 	    fail
     end;
 join_loop(_GameInfo, {joined, _NodeId}) ->
@@ -221,11 +262,11 @@ update_node_list(_, []) ->
 game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
     receive
 	{hello, NodeId} ->
-	    io:format("Received hello from ~p~n", [NodeId]),
+	    ?LOG("Received hello from ~p~n", [NodeId]),
 	    send_to_mp(NodeId, {hi, MyNodeId}),
 	    game_manager_loop(ManagerState);
 	{join, NodeId} ->
-	    io:format("Received join from ~p~n", [NodeId]),
+	    ?LOG("Received join from ~p~n", [NodeId]),
 	    Pid = spawn_link(fun () ->
 				     put(id, MyNodeId),
 				     message_passer:get_lock(add_player),
@@ -245,7 +286,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 		    game_manager_loop(ManagerState)
 	    end;
 	{joined, NodeId} ->
-	    io:format("Received joinED from ~p~n", [NodeId]),
+	    ?LOG("Received joinED from ~p~n", [NodeId]),
 	    GameState = game_logic:get_game_state(),
 	    GameInfo = ManagerState#manager_state.game_info,
 	    send_to_mp(NodeId, {game_state, GameState, GameInfo}),
@@ -266,7 +307,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    %% adding this nodeid to game info and also generates the priority of that new node
 	    #manager_state{game_info={GameId, Name, NodeList}} = ManagerState,
 	    NewPriority = find_max_priority(NodeList) + 1,
-	    io:format("adding a player ~p to nodelist ~p with priority ~p~n", [NodeId, NodeList, NewPriority]),
+	    ?LOG("adding a player ~p to nodelist ~p with priority ~p~n", [NodeId, NodeList, NewPriority]),
 	    game_manager_loop(ManagerState#manager_state{game_info={GameId, Name,
 								    [#host_info{id=NodeId, priority=NewPriority}|NodeList]}});
 	{player_added, NodeId, AckSenderId} ->
@@ -289,27 +330,11 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 		    Pid ! {player_added, NodeId},
 		    erase(NodeId),
 		    
-
-		    %% add the player to the game server
-		    #manager_state{game_info={GameId, _Name, _NodeList}} = ManagerState,
-		    %% this hostinfo is {NodeId, Ip, Port}
-		    HostInfo = message_passer:get_host_info(NodeId),
-		    case send_message_to_game_server({set, add_player, {GameId, HostInfo}}) of
-			{ok, player_added} ->
-			    io:format("Adding player to game server succeeded~n"),
-			    game_manager_loop(ManagerState);
-			{error, Reason} ->
-			    io:format("Add player failed ~p~n", [Reason]),
-			    game_manager_loop(ManagerState)
-		    end;
+		    add_player_to_game_info(NodeId);
 		_Any ->
 		    put({NodeId, addplayer}, IdList1),
 		    game_manager_loop(ManagerState)
 	    end;
-	{add_to_leader_queue, AddedSnakes} ->
-	    LeaderQueue = ManagerState#manager_state.leader_queue,
-	    NewLeaderQueue = update_leader_queue(LeaderQueue, AddedSnakes),
-	    game_manager_loop(ManagerState#manager_state{leader_queue = NewLeaderQueue});
 	{check_for_leader, Pid} ->
 	    Pid ! {game_manager, is_leader_result, ManagerState#manager_state.leader},
 	    game_manager_loop(ManagerState);
@@ -325,34 +350,52 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    %% this also makes sure that im not the leader
 	    %% remove myself from the leader queue
 	    game_manager_loop(ManagerState#manager_state{leader=false});
-	{remove_from_game_info, NodeId} ->
+	{remove_from_game_info, Pid, NodeId} ->
 	    %% the game info holds the leader queue
 	    %% removes the dead node from the leader queue
+	    ?LOG("Removing ~p from game_info~n", [NodeId]),
 	    {GameId, Name, NodeList} = ManagerState#manager_state.game_info,
 	    case lists:keytake(NodeId, #host_info.id, NodeList) of
 		{value, #host_info{priority=NodePriority}, RestOfNodeList} ->
 		    %% this function will update the other node priorities accordingly
+		    remove_player_from_game_server(GameId, NodeId),
 		    Rest1 = update_node_list(NodePriority, RestOfNodeList),
-		    case NodePriority of
-			1 ->
-			    %% TODO: figure out who should broadcast this (unless everyone just tells themselves)
+		    case {NodePriority, Rest1} of
+			{1, []} ->
+			    ?LOG("We were the only one so just continue~n", []),
+			    %% stop my clock
+			    clock:stop();
+			{1, Rest1} ->
 			    %% someone else must now be one
-			    io:format("We have a new leader.  new NodeList: ~p~n", [Rest1]),
+			    ?LOG("We have a new leader.  new NodeList: ~p~n", [Rest1]),
+			    
+			    %% stop my clock
+			    clock:stop(),
+
 			    #host_info{id=NewLeaderId} = lists:keyfind(1, #host_info.priority, Rest1),
 			    game_manager ! {make_leader, NewLeaderId};
 			_Other ->
-			    io:format("No new leader.  new NodeList: ~p~n", [Rest1])
+			    ?LOG("No new leader.  new NodeList: ~p~n", [Rest1])
 		    end,
 		    NewGameInfo = {GameId, Name, Rest1},
+		    Pid ! {game_manager, removed_from_game_info, NodeId},
 		    game_manager_loop(ManagerState#manager_state{game_info=NewGameInfo});
 		false ->
-		    io:format("Cannot find node ~p in NodeList~n", [NodeId]),
+		    ?LOG("Cannot find node ~p in NodeList~n", [NodeId]),
+		    Pid ! {game_manager, error, node_not_found, NodeId},
 		    game_manager_loop(ManagerState)
 	    end;
 	{debug, Pid} ->
 	    Pid ! {game_manager, ManagerState},
 	    game_manager_loop(ManagerState);
+	{'EXIT', Pid, Reason} ->
+	    ?LOG("Process ~p died : ~p~n", [Pid, Reason]),
+	    game_manager_loop(ManagerState);
+	{restart} ->
+	    game_logic:stop(),
+	    message_passer:stop(),
+	    game_manager:init(get(id), get(defaultport));
 	Any ->
-	    io:format("Invalid message ~p~n", [Any]),
+	    ?LOG("Invalid message ~p~n", [Any]),
 	    game_manager_loop(ManagerState)
     end.

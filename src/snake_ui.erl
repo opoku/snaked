@@ -1,5 +1,6 @@
 -module(snake_ui).
 -export([start/1, display/2, start_gui/1, stop/0, display_obstacles/1]).
+-include("common.hrl").
 -include("game_state.hrl").
 
 
@@ -21,10 +22,15 @@ start_gui({X,Y}) ->
     Food_List = [],
     Obstacle_List = [],
     Messages_List = [],
-    Colors_List = [{red,none},{blue,none},{green,none},{yellow,none},{orange,none},{pink,none},{purple,none},{brown,none}],
+    Colors_List = [{red,none},
+		   {blue,none},
+		   {yellow,none},
+		   {orange,none},
+		   {pink,none},
+		   {purple,none},
+		   {brown,none},
+		   {magenta,none}],
     put(list_Of_Colors, Colors_List),
-    %%dont_end().
-
     loop(Can,Snakes_List,Obstacle_List,Food_List,Messages_List).
 
 
@@ -39,17 +45,20 @@ handle_keypress(KeySym) ->
 loop(Can,Snakes_List,Obstacle_List,Food_List,Messages_List)->
     receive
 	{die} ->
-	    io:format("UI dying\n"),
+	    ?LOG("UI dying\n",[]),
 	    done;
+	{gs,_,destroy,_, _} ->
+	    ?LOG("UI closed so dying\n",[]),
+	    exit(window_closed);
 	{gs,_,keypress,_Data,[KeySym|_]}->
-	    io:format("key pressed\n", []),
+	    ?LOG("key pressed\n", []),
 	    handle_keypress(KeySym),
 	    loop(Can,Snakes_List,Obstacle_List,Food_List,Messages_List);
 
 	{display_obstacles, List}->
 	    Obstacle_List1= display_board(List,Can),
 	    object_disappear(Obstacle_List),
-	    io:format("display_board returned\n", []),
+	    ?LOG("display_board returned\n", []),
 	    loop(Can,Snakes_List,Obstacle_List1, Food_List,Messages_List);
 
 	{display_food, List}->
@@ -58,7 +67,7 @@ loop(Can,Snakes_List,Obstacle_List,Food_List,Messages_List)->
 	    loop(Can,Snakes_List,Obstacle_List, Food_List1,Messages_List);
 
 	{display_snakes, List}->
-	    %%io:format("SnakesList ~p~n", [List]),
+	    %%?LOG("SnakesList ~p~n", [List]),
 	    Messages_List1 = display_messages(List,Can), 
 	    Snakes_List1 = display_snakes(List, Can),
 	    object_disappear(Messages_List),
@@ -78,7 +87,7 @@ display(#game_state{snakes = Snakes, obstacles = _Obstacles, foods = Food, size 
     %% Results is a list contains tuples like
     %% {killed, SnakeId} | {eaten, }
 
-    %%io:format("GameState: ~p  Results : ~p~n", [GameState, Results]),
+    %%?LOG("GameState: ~p  Results : ~p~n", [GameState, Results]),
 
     %%if
 	%%Tick < 2 ->
@@ -107,7 +116,7 @@ object_disappear(List)->
 
 
 display_board(List, Can)->
-    io:format("display board called~n",[]),
+    ?LOG("display board called~n",[]),
     lists:map(fun(X) -> obstacles(X,Can) end, List).
 
 
@@ -119,7 +128,7 @@ obstacles(#object{type = obstacle, position = Coords},Can)->
     gs:create(line, Can, [{coords,resize(Coords1)},{fg,black},{width,10}]).
 
 display_food(List,Can)->
-    %%io:format("display food called... ~nFoodlist ~p~n", [List]),
+    %%?LOG("display food called... ~nFoodlist ~p~n", [List]),
     lists:map(fun(X) -> food(X,Can) end, List).
 
 food(#food{position = [{X,Y}]}, Can)->
@@ -157,7 +166,7 @@ snak(#snake{position = P,id = Id},Can)->
     
 
 %%display_snakes(List, Can, Snakes_List)->
-%%    io:format("display snakes called~n",[]),
+%%    ?LOG("display snakes called~n",[]),
 %%    lists:map(fun(X) -> snake(X,Can,Snakes_List) end, List).
 
 
@@ -187,7 +196,7 @@ message(#snake{id=Id,score=S,lives=L},Can,{X,Y})->
     One = gs:create(text,Can,[{coords,[{X,Y}]},{text,Text1},{font,{times,12}},{fg,black}]),
     Colors_List = get(list_Of_Colors),
     Color_tuple = lists:keysearch(Id, 2, Colors_List),
-    io:format("Color ~p\n", [Color_tuple]),
+    ?LOG("Color ~p\n", [Color_tuple]),
     case Color_tuple of
 	{value,{Color1,Id}} -> Color = Color1;
 	false -> Color = white

@@ -2,7 +2,7 @@
 
 NODE=$1
 PORT=$2
-erl -noshell -pa ebin/ -run game_manager start $NODE $PORT 
+erl -pa ebin/ -run game_manager start $NODE $PORT 
 #erl -noshell -pa ebin/ -s game_manager start manan1 5001 &
 #sleep 1
 #erl -noshell -pa ebin/ -s game_manager start manan2 5002 &

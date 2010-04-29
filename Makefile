@@ -1,5 +1,5 @@
 all:
-	(cd src && erl -make)
+	(cd src && make)
 
 clean:
 	rm -fr ebin/*.beam

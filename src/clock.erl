@@ -8,6 +8,7 @@
 -module(clock).
 
 -export([start/0,start/1,init/1,stop/0,set_tick/1]).
+-include("common.hrl").
 -include("game_state.hrl").
 
 -define(FOOD_GENERATION_INTERVAL, 10).
@@ -43,7 +44,7 @@ get_new_foods(Tick) ->
 
 get_new_player_positions() ->
     NewPos = game_logic:get_new_player_position(),
-    %%io:format("DEBUG: in get_new_player_positions, before return NewPos -->~n ~p~n", [NewPos]),
+    %%?LOG("DEBUG: in get_new_player_positions, before return NewPos -->~n ~p~n", [NewPos]),
     NewPos.
 
 set_tick(NewTick) ->
@@ -54,7 +55,7 @@ loop(Time, Tick) ->
     receive
 	{Pid, stop} ->
 	    Pid ! ok,
-	    io:format("Game Clock stopping~n");
+	    ?LOG("Game Clock stopping~n",[]);
 	{forcetick} ->
 	    game_manager:broadcast_tick(Tick),
 	    loop(Time, Tick+1);

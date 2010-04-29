@@ -5,6 +5,7 @@
 
 -module(tcp_comm).
 -compile([export_all]).
+-include("common.hrl").
 
 -record(comm_state,
        {socket,
@@ -17,7 +18,7 @@ start_client(Host, Port) ->
 client_connect(Host, Port) ->
     case gen_tcp:connect(Host, Port, [binary, {packet, 4}]) of
 	{ok, Socket}-> Socket;
-	{error, Reason}->io:format("Error on connect Socket ~p. Trying again~n", [Reason]), 
+	{error, Reason}->?LOG("Error on connect Socket ~p. Trying again~n", [Reason]), 
 			 client_connect(Host, Port)
     end.	
 
@@ -41,24 +42,24 @@ start_server(Port) ->
     spawn(tcp_comm, par_connect, [Port, Listen]).
 
 par_connect(Port, Listen) ->
-    io:format("Waiting for connection~n"),
+    ?LOG("Waiting for connection~n",[]),
     %% when message_passer dies this returns with {error, closed} so we have to handle
     %% this somewhere
     case gen_tcp:accept(Listen) of
 	{ok, Socket} ->
-	    io:format("Connected on Socket ~p~n", [Socket]),
+	    ?LOG("Connected on Socket ~p~n", [Socket]),
 	    spawn(tcp_comm, par_connect, [Port, Listen]),
 	    %% send your node id to client
 	    message_passer ! {comm_started, self()},
 	    send_node_id(),
 	    comm_loop(#comm_state{socket=Socket});
 	{error, Reason} ->
-	    io:format("Error on listen Socket ~p(~p). Not relistening~n", [Listen, Reason])
+	    ?LOG("Error on listen Socket ~p(~p). Not relistening~n", [Listen, Reason])
 	    %%start_server(Port)
     end.
 
 send_msg(Pid, Msg) ->
-    %%io:format("Sending message: ~p~n", [Msg]),
+    %%?LOG("Sending message: ~p~n", [Msg]),
     Pid ! {send, self(), Msg},
     receive
 	{Pid, Any} ->
@@ -94,11 +95,11 @@ comm_loop(#comm_state{socket=Socket, myseqno=SeqNo} = CommState) ->
 	{tcp_closed, Socket} ->
 	    %% this may be an error.  should we try to reconnect or just tell message
 	    %% passer that we are going to die?
-	    io:format("Socket ~p closed~n", [Socket]),
+	    ?LOG("Socket ~p closed~n", [Socket]),
 	    %% this exit tells message passer that we are dying.  message passer will handle the rest
 	    exit(socketclosed);
 	{send, Pid, Data} ->
-	    %%io:format("Sending message ~p [~p to ~p]~n", [Data, inet:sockname(Socket), inet:peername(Socket)]),
+	    %%?LOG("Sending message ~p [~p to ~p]~n", [Data, inet:sockname(Socket), inet:peername(Socket)]),
 	    BinData = term_to_binary(Data),
 	    Result = gen_tcp:send(Socket, BinData),
 	    Pid ! {self(), Result},
@@ -115,7 +116,7 @@ comm_loop(#comm_state{socket=Socket, myseqno=SeqNo} = CommState) ->
 		    Pid ! {self(), Reason}
 	    end;
 	{debug} ->
-	    io:format("Debug info:~p", [CommState]),
+	    ?LOG("Debug info:~p", [CommState]),
 	    comm_loop(CommState)
     end.
 
@@ -133,6 +134,6 @@ self_comm_loop(Port) ->
 	    send_node_id(),
 	    self_comm_loop(Port);
 	{debug} ->
-	    io:format("Debug info for self loop:~p", [Port]),
+	    ?LOG("Debug info for self loop:~p", [Port]),
 	    comm_loop(Port)
     end.

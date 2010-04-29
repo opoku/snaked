@@ -19,6 +19,8 @@
 -export([start/2, send_event/1]).
 
 -compile([export_all]).
+-include("common.hrl").
+
 
 -import(queue, [out/1, out_r/1, in/2, in_r/2]).
 -import(lists, [map/2]).
@@ -50,8 +52,15 @@ start(Id, GameInfo) ->
     register(game_logic, Pid).
 
 stop() ->
-    (catch snake_ui:stop()),
-    game_logic ! {die}.
+    case whereis(snake_ui) of
+	undefined -> ok;
+	_Any -> snake_ui:stop()
+    end,
+    case whereis(game_logic) of
+	undefined -> ok;
+	_Any2 -> game_logic ! {die}
+    end,
+    done.
 
 init(Id, NodeIdList) ->
 
@@ -60,7 +69,7 @@ init(Id, NodeIdList) ->
     Snakes = [#snake{id=NodeId} || NodeId <- NodeIdList],
 
     GameState = #game_state{obstacles=Obstacles, myid = Id, snakes=Snakes},
-    %%process_flag(trap_exit, true),
+    process_flag(trap_exit, true),
     put(events, []),
     put(unseen_nodes, NodeIdList),
     put(ticks, []),
@@ -78,7 +87,7 @@ gen_obstacles() ->
     {Root, _Options} = filename:find_src(game_logic),
     
     PathToBorder = filename:absname_join(filename:dirname(Root), "../resources/border.txt"),
-    io:format("path: ~p~n", [PathToBorder]),
+    ?LOG("path: ~p~n", [PathToBorder]),
     {ok, [Border]} = file:consult(PathToBorder),
     [#object{type=obstacle, position = Border}].
 
@@ -131,7 +140,7 @@ start_game() ->
     ok.
 
 game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
-    %%io:format("DEBUG: new game loop~n"),
+    %%?LOG("DEBUG: new game loop~n",[]),
     receive
 	{tick, NewClock, _Options} = Msg ->
 	    put(ticks, [Msg | get(ticks)]),
@@ -145,11 +154,11 @@ game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
 		[] ->
 		    %% i have seen all the nodes
 		    %% so tell the game manager
-		    io:format("I have seen all the nodes so Im telling the game manager~n"),
+		    ?LOG("I have seen all the nodes so Im telling the game manager~n",[]),
 		    game_manager ! {started, game_logic},
 		    receive
 			{game_state, #game_state{clock=Clock, snakes=Snakes} = NewGameState} ->
-			    io:format("I have received the game state~n"),
+			    ?LOG("I have received the game state~n",[]),
 			    %% erase(Key) returns value and then erases the key
 			    %% keep all the ticks that are after the clock in
 			    %% game state
@@ -181,34 +190,40 @@ game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
 
 game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
     #game_state{clock=Clock, myid = MyId} = GameState,
-    %%io:format("DEBUG: started game loop ~p~n", [Clock]),
+    %%?LOG("DEBUG: started game loop ~p~n", [Clock]),
     receive
 	{'EXIT', Pid, Reason} ->
-	    io:format("Pid ~p exited for reason ~p~n", [Pid, Reason]),
-	    game_loop(GameState, ReceivedMoveQueue);
+	    ?LOG("Pid ~p exited for reason ~p~n", [Pid, Reason]),
+	    case whereis(snake_ui) of
+		undefined ->
+		    ?LOG("UI died so dying~n",[]);
+		_Else ->
+		    ?LOG("Something else died so continuing~n",[]),
+		    game_loop(GameState, ReceivedMoveQueue)
+	    end;
 	{print_state} ->
-	    io:format("Clock: ~p~nGameState: ~p~nReceivedMoveQueue: ~p~n", [Clock, GameState, ReceivedMoveQueue]),
+	    ?LOG("Clock: ~p~nGameState: ~p~nReceivedMoveQueue: ~p~n", [Clock, GameState, ReceivedMoveQueue]),
 	    game_loop(GameState, ReceivedMoveQueue);
 	{Pid, get_state} ->
-	    io:format("Getstate~n"),
+	    ?LOG("Getstate~n",[]),
 	    Pid ! {self(), {GameState, ReceivedMoveQueue}},
 	    game_loop(GameState, ReceivedMoveQueue);
 	{Pid, get_new_player_position} ->
-	    %%io:format("Get New Player Position~n"),
+	    %%?LOG("Get New Player Position~n",[]),
 	    #game_state{new_player_positions=NewPos} = GameState,
 	    Pid ! {self(), NewPos},
 	    game_loop(GameState#game_state{new_player_positions=[]}, ReceivedMoveQueue);
 	{Pid, get_game_state} ->
-	    %%io:format("Get Game State~n"),
+	    %%?LOG("Get Game State~n",[]),
 	    Pid ! {self(), GameState},
 	    game_loop(GameState, ReceivedMoveQueue);
 	{become, Mod, Func} ->
-	    io:format("Becoming ~p:~p~n", [Mod, Func]),
+	    ?LOG("Becoming ~p:~p~n", [Mod, Func]),
 	    apply(Mod, Func, [GameState, ReceivedMoveQueue]);
 	{die} ->
-	    io:format("Game Logic Dying~n");
+	    ?LOG("Game Logic Dying~n",[]);
 	{add_player, NodeId, HandlerId} ->
-	    io:format("Adding player ~p~n", [NodeId]),
+	    ?LOG("Adding player ~p~n", [NodeId]),
 
 	    %% create a new snake in game state, create a received move queue entry
 	    #game_state{snakes=Snakes} = GameState,
@@ -225,8 +240,8 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    game_manager:send_to_mp(HandlerId, {player_added, NodeId, MyId}),
 
 	    game_loop(GameState#game_state{snakes=Snakes1}, NewReceivedMoveQueue);
-	{tick, NewClock, Options} = Tick ->
-	    io:format ("Received tick for clock ~p old Clock ~p~n", [NewClock, Clock]),
+	{tick, NewClock, Options} = _Tick ->
+	    ?LOG("Received tick for clock ~p old Clock ~p~n", [NewClock, Clock]),
 	    case Clock + 1 =:= NewClock of
 		true ->
 		    Snakes = GameState#game_state.snakes,
@@ -238,12 +253,12 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 			    done;
 			MissingSnakes ->
 			    %% TODO: ask for it from other nodes or something involving a NACK
-			    io:format("DEBUG: Missing events from ~p~n", [MissingSnakes])
+			    ?LOG("DEBUG: Missing events from ~p~n", [MissingSnakes])
 %% 			    game_logic ! Tick ,
 %% 			    game_loop(GameState, ReceivedMoveQueue)
 		    end,
 
-		    %%io:format ("Advancing Clock~n"),
+		    %%?LOG("Advancing Clock~n",[]),
 		    MoveEvents = receive_all_events(),
 		    MoveMsg = {game_logic, {move, MyId, NewClock, MoveEvents}},
 
@@ -264,7 +279,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 					false ->
 					    NewGameState
 				    end,
-		    %%io:format("Finished generating food~n"),
+		    %%?LOG("Finished generating food~n",[]),
 		    Snakes1 = NewGameState1#game_state.snakes, 
 		    put(expected_events, [SnakeId || #snake{id=SnakeId} <- Snakes1]),
 		    game_loop(NewGameState1, NewReceivedMoveQueue);
@@ -275,14 +290,14 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	
 	%% this will only match those events that are for the current clock
 	{move, SnakeId, Clock, []} ->
-	    io:format("move, empty move list~n"),
+	    ?LOG("move, empty move list~n",[]),
 	    %% an empty movelist should be ignored
 	    put(expected_events, get(expected_events) -- [SnakeId]),
 	    game_loop(GameState, ReceivedMoveQueue);
 	{move, SnakeId, Clock, MoveList} -> 
-	    io:format("move, movelist--> ~p~n", [MoveList]),
+	    ?LOG("move, movelist--> ~p~n", [MoveList]),
 	    %% put this move into the queue for snakeid
-	    io:format("Snake ~p Move event received: ~p~n", [SnakeId, MoveList]),
+	    ?LOG("Snake ~p Move event received: ~p~n", [SnakeId, MoveList]),
 	    put(expected_events, get(expected_events) -- [SnakeId]),
 	    Snakes = GameState#game_state.snakes,
 	    case {game_manager:is_leader(), lists:keyfind(SnakeId, #snake.id, Snakes)} of
@@ -304,7 +319,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		    game_loop(GameState, NewReceivedMoveQueue);
 		{_, false} ->
 		    %% shouldnt happen
-		    io:format("Error: received a move event from an unregistered snake ~p~n", [SnakeId]),
+		    ?LOG("Error: received a move event from an unregistered snake ~p~n", [SnakeId]),
 		    %% do nothing
 		    game_loop(GameState, ReceivedMoveQueue)
 	    end;
@@ -392,7 +407,7 @@ receive_all_events(MoveList) ->
 
 %% returns {NewGameState, NewMoveQueue}
 advance_game(GameState, MoveQueue) ->
-    %%io:format ("Inside advance game~n"),
+    %%?LOG("Inside advance game~n",[]),
     {GameState1, MoveQueue1} = move_snakes(GameState,MoveQueue),
 
     %% Results is basically some messages saying what happened as a result of evaluation
@@ -403,12 +418,12 @@ advance_game(GameState, MoveQueue) ->
     
     %% update the gui
     snake_ui:display(NewGameState, Results),
-    %%io:format ("Done updating display~n"),
+    %%?LOG("Done updating display~n",[]),
     {NewGameState, NewMoveQueue}.
 
 update_game_connections([{killed, SnakeId} | Results]) ->
-    message_passer:disconnect_from_nodeid(SnakeId),
     game_manager:remove_from_game_info(SnakeId),
+    message_passer:disconnect_from_nodeid(SnakeId),
     update_game_connections(Results);
 update_game_connections([_H|L]) ->
     update_game_connections(L);
@@ -629,7 +644,7 @@ resize_snake_position(Q, _QL, _L) -> Q.
     
 
 %% display_board(GameState,Results) ->
-%%     io:format("GS:~p~n Results:~p~n", [GameState, Results]).
+%%     ?LOG("GS:~p~n Results:~p~n", [GameState, Results]).
 
 front(Q1) ->
     queue:get(Q1).

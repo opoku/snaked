@@ -1,7 +1,9 @@
 -module(food).
 -compile([export_all]).
-
+-include("common.hrl").
 -include("game_state.hrl").
+-undef(MODULE_DEBUG).
+-define(MODULE_DEBUG,false).
 
 %% This function generates a list of foods.
 generate_foods(GameState) ->
@@ -39,5 +41,5 @@ is_block_occupied(GameState, X, Y) ->
 get_new_foods() ->
     GameState = game_logic:get_game_state(),
     #game_state{new_foods = NewFoods} = GameState,
-    io:format("Yaaay New foods: ~p~n", [NewFoods]),
+    ?LOG("Yaaay New foods: ~p~n", [NewFoods]),
     NewFoods.

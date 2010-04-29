@@ -5,6 +5,7 @@
 
 -module(game_server).
 -compile([export_all]).
+-include("common.hrl").
 
 -record(comm_state,
        {socket, game_list = [], gameid = 0}).
@@ -47,7 +48,7 @@ get_server_port() ->
 	undefined ->
 	    {Root, _Options} = filename:find_src(game_server),
 	    PathToConfigFile = filename:absname_join(filename:dirname(Root), "../resources/server-config.txt"),
-	    io:format("config file path: ~p~n", [PathToConfigFile]),
+	    ?LOG("config file path: ~p~n", [PathToConfigFile]),
 	    {ok, [_ServerHost,ServerPort]} = file:consult(PathToConfigFile),
 	    put(server_port, ServerPort),
 	    ServerPort;
@@ -58,30 +59,31 @@ get_server_port() ->
 
 
 server_loop(Listen, CommState) ->
-    io:format("Waiting for connection~n"),
+    ?LOG("Waiting for connection on ~p~n",[Listen]),
     case gen_tcp:accept(Listen) of
 	{ok, Socket} ->
-	    io:format("Connected on Socket ~p~n", [Socket]),
+	    ?LOG("Connected on Socket ~p~n", [Socket]),
 	    NewCommState = process_connection(Socket, CommState),
 	    gen_tcp:close(Socket),
-	    io:format("Socket ~p closed~n", [Socket]),
+	    ?LOG("Socket ~p closed~n", [Socket]),
 
 	    receive
 		{reset} ->
-		    io:format("Reseting server. Old state ~p~n", [NewCommState]),
+		    ?LOG("Reseting server. Old state ~p~n", [NewCommState]),
 		    server_loop(Listen, #comm_state{});
 		{debug, Pid} ->
 		    Pid ! {game_server_debug, NewCommState},
 		    server_loop(Listen, NewCommState);
 		{stop} ->
-		    io:format("Stopping game server: Current state ~p~n", [NewCommState]),
+		    ?LOG("Stopping game server: Current state ~p~n", [NewCommState]),
 		    gen_tcp:close(Listen)
 	    after 0 ->
 		    server_loop(Listen, NewCommState)
 	    end;
 	%% if accept fails
 	{error, Reason} ->
-	    io:format("Error on listen Socket ~p(~p). Relistening~n", [Listen, Reason]),
+	    Reason1 = Reason,
+	    ?LOG("Error (~p)on listen Socket ~p. Relistening~n", [Reason1, Listen]),
 	    server_loop(Listen, CommState)
     end.
 
@@ -89,7 +91,7 @@ process_connection(Socket, #comm_state{game_list = GameList, gameid = CurrentGam
     receive
 	{tcp, Socket, Data} ->
 	    Data1 = binary_to_term(Data),
-	    io:format("Received tcp data~p~n", [Data1]),
+	    ?LOG("Received tcp data~p~n", [Data1]),
 	    %% do something with received message
 	    case Data1 of
 		{get, game_list} ->
@@ -121,12 +123,17 @@ process_connection(Socket, #comm_state{game_list = GameList, gameid = CurrentGam
 		    gen_tcp:send(Socket, term_to_binary({ok, game_removed})),
 		    CommState#comm_state{game_list=NewGameList};
 		%% the person who is responsible for adding the player sends this message
-		{set, add_player, {GameId, {PlayerId, self, Port}}} ->
+		{set, add_player, {GameId, {PlayerId, Ip, Port} = Player}} ->
+		    Player1 = case Ip of
+				  {127,0,0,1} -> % an ip of self means the game_server should figure out the ip
+				      {ok, {HostIp, _Port}} = inet:peername(Socket),
+				      {PlayerId, HostIp, Port};
+				  Ip ->
+				      Player
+			      end,
 		    case lists:keyfind(GameId, 1, GameList) of
 			{GameId, Name, NodeList} ->
-			    {ok, {HostIp, _Port}} = inet:peername(Socket),
-			    Player = {PlayerId, HostIp, Port},
-			    NewNodeList = [Player | NodeList],
+			    NewNodeList = [Player1 | NodeList],
 			    NewGameList = lists:keystore(GameId, 1, GameList, {GameId, Name, NewNodeList}),
 			    gen_tcp:send(Socket, term_to_binary({ok, player_added})),
 			    CommState#comm_state{game_list=NewGameList};
@@ -134,30 +141,35 @@ process_connection(Socket, #comm_state{game_list = GameList, gameid = CurrentGam
 			    gen_tcp:send(Socket, term_to_binary({error, {game_not_found, GameId}})),
 			    CommState
 		    end;
-		{set, add_player, {GameId, {_PlayerId, _Ip, _Port} = Player}} ->
-		    case lists:keyfind(GameId, 1, GameList) of
-			{GameId, Name, NodeList} ->
-			    NewNodeList = [Player | NodeList],
-			    NewGameList = lists:keystore(GameId, 1, GameList, {GameId, Name, NewNodeList}),
-			    gen_tcp:send(Socket, term_to_binary({ok, player_added})),
-			    CommState#comm_state{game_list=NewGameList};
-			false ->
-			    gen_tcp:send(Socket, term_to_binary({error, {game_not_found, GameId}})),
-			    CommState
-		    end;
-		{set, remove_player, {GameId, {_PlayerId, _Ip, _Port} = Player}} ->
+		{set, remove_player, {GameId, {PlayerId, Ip, Port} = Player}} ->
+		    Player1 = case Ip of
+				  {127,0,0,1} -> % an localhost means the game_server should figure out the ip
+				      {ok, {HostIp, _Port}} = inet:peername(Socket),
+				      {PlayerId, HostIp, Port};
+				  Ip ->
+				      Player
+			      end,
 		    case lists:keyfind(GameId, 1, GameList) of
 			{GameId, Name, NodeList} ->
 			    Len1 = length(NodeList),
-			    NewNodeList = NodeList -- [Player],
+			    NewNodeList = NodeList -- [Player1],
 			    Len2 = length(NewNodeList),
-			    case Len1 =:= Len2 of
-				true ->
+			    case Len2 of
+				0 ->
+				    %% no players left so just end the game
+				    NewGameList = lists:keydelete(GameId, 1, GameList),
+				    ?LOG("Player ~p removed and no players left so removing game ~p~n",
+					 [PlayerId, GameId]),
+				    gen_tcp:send(Socket, term_to_binary({ok, player_removed})),
+				    CommState#comm_state{game_list=NewGameList};
+				Len1 ->
 				    %% nothing removed
 				    gen_tcp:send(Socket, term_to_binary({error, {player_not_found, Player}})),
 				    CommState;
-				false ->
+				_Other ->
+				    %% something happened
 				    NewGameList = lists:keystore(GameId, 1, GameList, {GameId, Name, NewNodeList}),
+				    ?LOG("Player ~p removed from game ~p~n", [PlayerId, GameId]),
 				    gen_tcp:send(Socket, term_to_binary({ok, player_removed})),
 				    CommState#comm_state{game_list=NewGameList}
 			    end;
@@ -177,11 +189,11 @@ process_connection(Socket, #comm_state{game_list = GameList, gameid = CurrentGam
 gs_client(Host, Port, Msg) ->
     {ok, Socket} = gen_tcp:connect(Host, Port, [binary, {packet,0}]),
     Bin = term_to_binary(Msg),
-    io:format("Sending msg ~p to server~n", [Msg]),
+    ?LOG("Sending msg ~p to server~n", [Msg]),
     gen_tcp:send(Socket, Bin),
     Data = client_loop(Socket),
     Term = binary_to_term(Data),
-    io:format("Received ~p from server ~n", [Term]),
+    ?LOG("Received ~p from server ~n", [Term]),
     Term.
 
 client_loop(Socket) ->
@@ -190,7 +202,7 @@ client_loop(Socket) ->
 client_loop(Socket, DataList) ->
     receive
 	{tcp, Socket, Data} ->
-	    io:format("Received msg from server~n"),
+	    ?LOG("Received msg from server~n",[]),
 	    client_loop(Socket, [Data | DataList]);
 	{tcp_closed, Socket} ->
 	    list_to_binary(lists:reverse(DataList))
