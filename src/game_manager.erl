@@ -3,9 +3,8 @@
 
 -define(MAX_PLAYERS, 8).
 
-
 -include("game_state.hrl").
--record(manager_state, {nodeid, game_info, timeout = 5000, leader=false, leader_queue = []}).
+-record(manager_state, {nodeid, game_info, timeout = 5000, leader=false, leader_queue = queue:new()}).
 
 %% TODO: race condition where the game_server's list of nodes is out of date
 
@@ -85,7 +84,7 @@ update_leader_queue(LeaderQueue, [{SnakeId, _Position, _Dir} | OtherAddedSnakes]
 update_leader_queue(LeaderQueue, []) ->
 	LeaderQueue.
 
-compare_priority({_Id1, _Dir1, _Pos1, _Len1, _Score1, _Lives1, P1}, {_Id2, _Dir2, _Pos2, _Len2, _Score2, _Lives2, P2}) ->
+compare_priority(#snake{priority = P1}, #snake{priority = P2}) ->
 	case P1 < P2 of
 		true -> 
 			true;
@@ -354,6 +353,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 		%% remove myself from the leader queue
 		game_manager_loop(ManagerState#manager_state{leader=false});
 	{remove_from_leader_queue, NodeId} ->
+		%% removes the dead node from the leader queue 
 		Pid = self(),
 		LeaderQueue = ManagerState#manager_state.leader_queue,
 		case queue:head(LeaderQueue) of
@@ -371,7 +371,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 				Pid ! {make_leader, NewLeaderId};
 				%% send remove_player to game_server : Ask Osei, where is the Player being created??
 				%%send_message_to_game_server({set, remove_player, Player});
-			OtherNodeId ->
+			_OtherNodeId ->
 				%% convert to queue to list, remove NodeId, and convert back to queue
 				LeaderList = queue:to_list(LeaderQueue),
 				NewLeaderList = lists:delete(NodeId, LeaderList),

@@ -59,6 +59,7 @@ init(Id, GameInfo) ->
 	
     %%Snakes = gen_snakes(),
     Obstacles = gen_obstacles(),
+	%% to be removed - hardcode to NewPriority = 1)
 	Priority = 0,
 	NewPriority = update_priority(Priority),
     GameState = #game_state{obstacles=Obstacles, myid = Id},
@@ -101,7 +102,7 @@ gen_obstacles() ->
     [#object{type=obstacle, position = Border}].
 
 update_priority(Priority) ->
-	NewPriority = Priority + 1.
+	 Priority + 1.
 
 find_max_priority([Snake | OtherSnakes]) ->
 	find_max_priority(OtherSnakes, Snake).
@@ -117,7 +118,7 @@ find_max_priority([NewSnake | OtherSnakes], Snake) ->
 	end,
 	find_max_priority(OtherSnakes,Snake);
 find_max_priority([], Snake) ->
-	Priority = Snake#snake.priority.
+	Snake#snake.priority.
 
 debug() ->
     game_logic ! {self(), get_state},
@@ -305,10 +306,8 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		_Any -> % ignore other 
 		    game_loop(GameState, ReceivedMoveQueue)
 	    end;
-	%% TODO: check if we have received move events from all the snakes in the list
-	{move, SnakeId, []} ->
+	
 	%% this will only match those events that are for the current clock
-
 	{move, SnakeId, Clock, []} ->
 	    %%io:format("move, empty move list~n"),
 	    %% an empty movelist should be ignored
