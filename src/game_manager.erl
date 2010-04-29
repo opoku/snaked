@@ -323,6 +323,8 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 		undefined ->
 		    game_manager_loop(ManagerState);
 		[] ->
+
+		    ?LOG("Received all player_added acks so adding ~p to game server~n",[NodeId]),
 		    erase({NodeId, addplayer}),
 
 		    %% tell background process that player has been added
@@ -330,9 +332,11 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 		    Pid ! {player_added, NodeId},
 		    erase(NodeId),
 
+		    
 		    %% add the player to the game server
 		    {GameId,_,_} = ManagerState#manager_state.game_info,
-		    add_player_to_game_server(GameId, NodeId);
+		    add_player_to_game_server(GameId, NodeId),
+		    game_manager_loop(ManagerState);
 		_Any ->
 		    put({NodeId, addplayer}, IdList1),
 		    game_manager_loop(ManagerState)
