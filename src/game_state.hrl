@@ -67,10 +67,7 @@
 	  score = 0,
 
 	  %% No. of lives granted to each snake
-	  lives = 5,
-	  
-	  priority = 0
-	
+	  lives = 5
 	}).
 
 

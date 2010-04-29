@@ -59,11 +59,7 @@ init(Id, GameInfo) ->
 
     %%Snakes = gen_snakes(),
     Obstacles = gen_obstacles(),
-    %% to be removed - hardcode to NewPriority = 1)
-    Priority = 0,
-    NewPriority = update_priority(Priority),
-
-    Snakes = [#snake{id=NodeId, priority = NewPriority} || NodeId <- NodeList],
+    Snakes = [#snake{id=NodeId} || NodeId <- NodeList],
 
     GameState = #game_state{obstacles=Obstacles, myid = Id, snakes=Snakes},
     %%process_flag(trap_exit, true),
@@ -80,18 +76,6 @@ init(Id, GameInfo) ->
     ReceivedMoveQueue = [{NodeId, queue:new()} || NodeId <- NodeList ],
     game_loop(GameState, ReceivedMoveQueue).
 
-gen_snakes() ->
-    Pos1 = in({10,10}, queue:new()),
-    Pos2 = in({10,9}, Pos1),
-    Pos3 = in({10,8}, Pos2),
-    
-%%     PosB1 = in({100,100}, queue:new()),
-%%     PosB2 = in({101,100}, PosB1),
-%%     PosB3 = in({102,100}, PosB2),
-    Snake1 = #snake{id=one, direction='Down', position=Pos3, length = 3},
-%%    Snake2 = #snake{id=two, direction='Left', position=PosB3, length = 3},
-    [Snake1].
-
 gen_obstacles() ->
     {Root, _Options} = filename:find_src(game_logic),
     
@@ -99,26 +83,6 @@ gen_obstacles() ->
     io:format("path: ~p~n", [PathToBorder]),
     {ok, [Border]} = file:consult(PathToBorder),
     [#object{type=obstacle, position = Border}].
-
-update_priority(Priority) ->
-	 Priority + 1.
-
-find_max_priority(Snakes) ->
-    lists:max([Priority || #snake{priority=Priority} <- Snakes]).
-%% 	find_max_priority(OtherSnakes, Snake).
-
-%% find_max_priority([NewSnake | OtherSnakes], Snake) ->
-%% 	P1 = NewSnake#snake.priority,
-%% 	P2 = Snake#snake.priority,
-	
-%% 	if P1 > P2 ->
-%% 		   Snake1 = NewSnake;
-%% 	   true ->
-%% 		   Snake1 = Snake
-%% 	end,
-%% 	find_max_priority(OtherSnakes,Snake1);
-%% find_max_priority([], Snake) ->
-%% 	Snake#snake.priority.
 
 debug() ->
     game_logic ! {self(), get_state},
@@ -393,9 +357,7 @@ process_options(GameState, [{newpos, SnakePosList} | Rest]) ->
     %% coordinates
     #game_state{snakes=Snakes} = GameState,
     %% update snake position for each new snake
-    {NewSnakes, AddedSnakes} = update_new_snake_position(Snakes, SnakePosList),
-	%% send message to the game manager to add players to the leader queue
-	game_manager:add_to_leader_queue(AddedSnakes),
+    NewSnakes = update_new_snake_position(Snakes, SnakePosList),
     process_options(GameState#game_state{snakes=NewSnakes}, Rest);
 process_options(GameState, []) ->
     GameState.
@@ -409,13 +371,12 @@ update_new_snake_position(Snakes, [{SnakeId, Position, Dir} | Rest], Done) ->
 	    update_new_snake_position(Snakes, Rest, Done);
 	{value, Snake, OtherSnakes} ->
 	    Length = length(Position),
-	    Priority = find_max_priority(Snakes),
-	    NewPriority = update_priority(Priority),
-	    %% TODO: set priority for the new added snakes -- loop thru snakes and find the max priority, new player priority is 1 more than max priority
-	    update_new_snake_position(OtherSnakes, Rest, [Snake#snake{position=queue:from_list(Position), length=Length, direction=Dir, priority = NewPriority} | Done])
+	    update_new_snake_position(OtherSnakes, Rest, [Snake#snake{position=queue:from_list(Position), 
+								      length=Length,
+								      direction=Dir} | Done])
     end;
 update_new_snake_position(Snakes, [], Done) ->
-    {Snakes ++ Done, Done}.
+    Snakes ++ Done.
 
 %% we haven't received the gui events until now. now we just receive all of them an put
 %% them in a list in the order they were sent.
@@ -449,6 +410,7 @@ advance_game(GameState, MoveQueue) ->
 
 update_game_connections([{killed, SnakeId} | Results]) ->
     message_passer:disconnect_from_nodeid(SnakeId),
+    game_manager:remove_from_game_info(SnakeId),
     update_game_connections(Results);
 update_game_connections([_H|L]) ->
     update_game_connections(L);
@@ -518,8 +480,6 @@ process_dead_snakes([DeadSnake | OtherDeadSnakes],DeadSnakes1,RegeneratedSnakes,
 	false ->
 	    Results1 = [{killed,SnakeId} | Results],
 	    DeadSnakes2 = [DeadSnake | DeadSnakes1],
-		%% TODO: remove from the leader queue, the snakes that are killed
-		game_manager:remove_from_leader_queue(SnakeId),
 	    process_dead_snakes(OtherDeadSnakes,DeadSnakes2,RegeneratedSnakes,Results1, GridSize)
     end;
 
