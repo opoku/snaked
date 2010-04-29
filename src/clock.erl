@@ -7,7 +7,7 @@
 %%%-------------------------------------------------------------------
 -module(clock).
 
--export([start/0,start/1,init/1,stop/0]).
+-export([start/0,start/1,init/1,stop/0,set_tick/1]).
 -include("game_state.hrl").
 
 -define(FOOD_GENERATION_INTERVAL, 10).
@@ -46,6 +46,9 @@ get_new_player_positions() ->
     %%io:format("DEBUG: in get_new_player_positions, before return NewPos -->~n ~p~n", [NewPos]),
     NewPos.
 
+set_tick(NewTick) ->
+    game_clock ! {set_tick, NewTick},
+    ok.
 
 loop(Time, Tick) ->
     receive

@@ -36,9 +36,9 @@ init(MyNodeId, DefaultPort) ->
 
 	fail -> 
 	    %%If you can't join the game, you start a new game and become a leader.
-	    {_GameId, _Name, _NodeList} = GameInfo = create_new_game("DefaultName"),
+	    {_GameId, _Name, NodeList} = GameInfo = create_new_game("DefaultName"),
 	    clock:start(),
-	    game_logic:start(MyNodeId, GameInfo),
+	    game_logic:start(MyNodeId, [NodeId || #host_info{id=NodeId} <- NodeList]),
 	    game_logic:start_game(),
 	    io:format("Starting the game manager loop~n"),
 	    game_manager_loop(#manager_state{nodeid=MyNodeId, game_info=GameInfo, leader=true})
@@ -189,7 +189,8 @@ join_loop(GameInfo, start) ->
 join_loop(GameInfo, {connected, NodeId}) ->
     receive
 	{adding, NodeId} ->
-	    game_logic:start(get(id), GameInfo),
+	    {_,_,NodeList}= GameInfo,
+	    game_logic:start(get(id), [NodeId1 || #host_info{id=NodeId1} <- NodeList]),
 	    message_passer:make_player(get(id)),
 	    send_to_mp(NodeId, {ok, get(id)}),
 	    join_loop(GameInfo, {connected, NodeId});
@@ -314,6 +315,8 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    game_manager_loop(ManagerState);
 	{make_leader, MyNodeId} ->
 	    %% If the nodeid is mine then make myself the leader
+	    #game_state{clock=Tick} = game_manager:get_game_state(),
+	    clock:set_tick(Tick),
 	    game_manager_loop(ManagerState#manager_state{leader=true});
 	{make_leader, _OtherNodeId} ->
 	    %% if the nodeid is not mine then make sure that I'm not the leader

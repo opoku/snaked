@@ -53,18 +53,16 @@ stop() ->
     (catch snake_ui:stop()),
     game_logic ! {die}.
 
-init(Id, GameInfo) ->
-
-    {_,_,NodeList} = GameInfo,
+init(Id, NodeIdList) ->
 
     %%Snakes = gen_snakes(),
     Obstacles = gen_obstacles(),
-    Snakes = [#snake{id=NodeId} || NodeId <- NodeList],
+    Snakes = [#snake{id=NodeId} || NodeId <- NodeIdList],
 
     GameState = #game_state{obstacles=Obstacles, myid = Id, snakes=Snakes},
     %%process_flag(trap_exit, true),
     put(events, []),
-    put(unseen_nodes, NodeList),
+    put(unseen_nodes, NodeIdList),
     put(ticks, []),
 
     %% populate process dictionary with expected_events
@@ -73,7 +71,7 @@ init(Id, GameInfo) ->
     snake_ui:start(GameState#game_state.size),
 
     %% there is a queue for each snake
-    ReceivedMoveQueue = [{NodeId, queue:new()} || NodeId <- NodeList ],
+    ReceivedMoveQueue = [{NodeId, queue:new()} || NodeId <- NodeIdList ],
     game_loop(GameState, ReceivedMoveQueue).
 
 gen_obstacles() ->
@@ -240,9 +238,9 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 			    done;
 			MissingSnakes ->
 			    %% TODO: ask for it from other nodes or something involving a NACK
-			    io:format("DEBUG: Missing events from ~p~n", [MissingSnakes]),
-			    game_logic ! Tick ,
-			    game_loop(GameState, ReceivedMoveQueue)
+			    io:format("DEBUG: Missing events from ~p~n", [MissingSnakes])
+%% 			    game_logic ! Tick ,
+%% 			    game_loop(GameState, ReceivedMoveQueue)
 		    end,
 
 		    %%io:format ("Advancing Clock~n"),
