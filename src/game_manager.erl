@@ -77,7 +77,8 @@ is_leader() ->
     game_manager ! {check_for_leader, self()},
     receive
 	{game_manager, is_leader_result, Result} ->
-        Result
+	    ?LOG("leader result: ~p~n", [Result]),
+	    Result
     end.
 
 make_leader(NodeId) ->
@@ -299,7 +300,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 
 	    %% create a checklist for acks
 	    #manager_state{game_info = {_,_,NodeList}} = ManagerState,
-	    IdList = [Id || {Id,_,_} <- NodeList],
+	    IdList = [Id || #host_info{id=Id} <- NodeList],
 	    put({NodeId, addplayer},IdList),
 
 	    game_manager_loop(ManagerState);
