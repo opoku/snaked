@@ -298,7 +298,8 @@ game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		{true, #snake{length=0}} ->
 		    %% zero length snake and i am the leader
 		    NewSnakePosList = GameState#game_state.new_player_positions,
-		    NewSnakePosList1 = [generate_new_snake_position(SnakeId, length(NewSnakePosList)) | NewSnakePosList],
+						GridSize = GameState#game_state.size,
+		    NewSnakePosList1 = [generate_new_snake_position(SnakeId, length(NewSnakePosList), GridSize) | NewSnakePosList],
 		    game_loop(GameState#game_state{new_player_positions=NewSnakePosList1}, ReceivedMoveQueue);
 		{false, #snake{length=0}} ->
 		    %% ignore this move
@@ -328,12 +329,25 @@ get_missing_snakes(SnakeList) ->
 	    lists:filter(fun (SnakeId) -> lists:member(SnakeId, ExpectedEvents) end, SnakeList)
     end.
 
-generate_new_snake_position(SnakeId, NumNewPlayers) ->
-    case NumNewPlayers rem 2 of
+generate_new_snake_position(SnakeId, NumNewPlayers, {GridX, GridY}) ->
+    case NumNewPlayers rem 8 of
 	0 -> % even
 	    {SnakeId, [{3,1},{2,1},{1,1}], 'Right'};
 	1 -> % odd
-	    {SnakeId, [{1,5},{1,4},{1,3}], 'Down'}
+	    {SnakeId, [{1,5},{1,4},{1,3}], 'Down'};
+	2 -> % even
+	    {SnakeId, [{1, GridY - 2},{1, GridY - 3},{1, GridY - 4}], 'Up'};
+	3 -> % odd
+	    {SnakeId, [{5, GridY - 2},{4, GridY - 2},{3, GridY - 2}], 'Right'};
+	4 -> % even
+	    {SnakeId, [{GridX - 4, GridY - 2},{GridX - 3, GridY - 2},{GridX - 2, GridY - 2}], 'Left'};
+	5 -> % odd
+	    {SnakeId, [{GridX - 2, GridY - 6},{GridX - 2, GridY - 5},{GridX - 2, GridY - 4}], 'Up'};
+	6 -> % even
+	    {SnakeId, [{GridX - 2, 5},{GridX - 2, 4},{GridX - 2, 3}], 'Down'};
+	7 -> % odd
+	    {SnakeId, [{GridX - 6, 1},{GridX - 5, 1},{GridX - 4, 1}], 'Left'}
+
     end.
 
 process_options(GameState, [{food, NewFoods}|Rest]) ->
@@ -439,35 +453,36 @@ detect_collision(Snake, ObstacleMap) ->
     end.
 
 
-process_dead_snakes(DeadSnakes) ->
-	process_dead_snakes(DeadSnakes,[],[],[]).
+process_dead_snakes(DeadSnakes, GridSize) ->
+	process_dead_snakes(DeadSnakes,[],[],[], GridSize).
 
-process_dead_snakes([DeadSnake | OtherDeadSnakes],DeadSnakes1,RegeneratedSnakes,Results)->
+process_dead_snakes([DeadSnake | OtherDeadSnakes],DeadSnakes1,RegeneratedSnakes,Results, GridSize)->
     #snake{id=SnakeId, lives=SnakeLives} = DeadSnake,
     case SnakeLives > 0 of
 	true ->
 	    SnakeLivesLeft = SnakeLives - 1,
 	    %%TODO: use a better border generate function%
-	    NewPosition = in({1,1},in({2,1},in({3,1},queue:new()))),
-	    NewSnake = DeadSnake#snake{lives=SnakeLivesLeft,position=NewPosition,direction='Right',length=3},
+					{SnakeId, NewPosition, Dir}  = generate_new_snake_position(SnakeId, length(RegeneratedSnakes), GridSize), 
+	    %%NewPosition = in({1,1},in({2,1},in({3,1},queue:new()))),
+	    NewSnake = DeadSnake#snake{lives=SnakeLivesLeft,position=queue:from_list(NewPosition),direction = Dir,length=length(NewPosition)},
 	    Results1 = [{regenerated,SnakeId} | Results],
 	    RegeneratedSnakes1 = [NewSnake | RegeneratedSnakes],
-	    process_dead_snakes(OtherDeadSnakes,DeadSnakes1,RegeneratedSnakes1,Results1);
+	    process_dead_snakes(OtherDeadSnakes,DeadSnakes1,RegeneratedSnakes1,Results1, GridSize);
 	false ->
 	    Results1 = [{killed,SnakeId} | Results],
 	    DeadSnakes2 = [DeadSnake | DeadSnakes1],
-	    process_dead_snakes(OtherDeadSnakes,DeadSnakes2,RegeneratedSnakes,Results1)
+	    process_dead_snakes(OtherDeadSnakes,DeadSnakes2,RegeneratedSnakes,Results1, GridSize)
     end;
 
-process_dead_snakes([],DeadSnakes1,RegeneratedSnakes,Results)->
+process_dead_snakes([],DeadSnakes1,RegeneratedSnakes,Results, _GridSize)->
     {DeadSnakes1,RegeneratedSnakes,Results}.
 
 evaluate_obstacles(GS) ->
     %% returns {GS1, Results}
-    #game_state{snakes=Snakes, obstacles=Obs} = GS,
+    #game_state{snakes=Snakes, obstacles=Obs, size = GridSize} = GS,
     ObstacleMap = build_obstacle_map(Snakes ++ Obs),
     {DeadSnakes, AliveSnakes} = lists:partition(fun(Snake) -> detect_collision(Snake, ObstacleMap) end, Snakes),
-	{_DeadSnakes1,RegeneratedSnakes,Results} = process_dead_snakes(DeadSnakes),
+	{_DeadSnakes1,RegeneratedSnakes,Results} = process_dead_snakes(DeadSnakes, GridSize),
 	AliveSnakes1 = AliveSnakes ++ RegeneratedSnakes,
     {GS#game_state{snakes=AliveSnakes1}, Results}.
 
