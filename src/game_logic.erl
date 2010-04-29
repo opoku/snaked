@@ -449,7 +449,7 @@ advance_game(GameState, MoveQueue) ->
 update_game_connections([{killed, SnakeId} | Results]) ->
     mesage_passer:disconnect_from_nodeid(SnakeId),
     update_game_connections(Results);
-update_game_connections([H|L]) ->
+update_game_connections([_H|L]) ->
     update_game_connections(L);
 update_game_connections([]) ->
     ok.
@@ -530,7 +530,7 @@ evaluate_obstacles(GS) ->
     #game_state{snakes=Snakes, obstacles=Obs, size = GridSize} = GS,
     ObstacleMap = build_obstacle_map(Snakes ++ Obs),
     {DeadSnakes, AliveSnakes} = lists:partition(fun(Snake) -> detect_collision(Snake, ObstacleMap) end, Snakes),
-    {DeadSnakes1,RegeneratedSnakes,Results} = process_dead_snakes(DeadSnakes, GridSize),
+    {_DeadSnakes1,RegeneratedSnakes,Results} = process_dead_snakes(DeadSnakes, GridSize),
     AliveSnakes1 = AliveSnakes ++ RegeneratedSnakes,
     {GS#game_state{snakes=AliveSnakes1}, Results}.
 
