@@ -43,7 +43,7 @@ get_new_foods(Tick) ->
 
 get_new_player_positions() ->
     NewPos = game_logic:get_new_player_position(),
-    io:format("DEBUG: in get_new_player_positions, before return NewPos -->~n ~p~n", [NewPos]),
+    %%io:format("DEBUG: in get_new_player_positions, before return NewPos -->~n ~p~n", [NewPos]),
     NewPos.
 
 

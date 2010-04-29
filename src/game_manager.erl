@@ -21,7 +21,7 @@ init(MyNodeId, DefaultPort) ->
 
     %%DefaultPort = 5555,
     %%Invoke message passer.
-    
+
     message_passer:start(DefaultPort, MyNodeId, []),
     register(game_manager, self()),
     process_flag(trap_exit, true),
@@ -31,19 +31,18 @@ init(MyNodeId, DefaultPort) ->
 	{ok, GameInfo, GameState} ->
 	    %%If you joined a game, you will receive the game state from the current game.
 	    game_logic:update_game_state(GameState),
-		%% TODO: clarify if NodeId = SnakeId??
-		%% TODO: create the leader queue based on the priority of the snakes in the snakeslists (sort snakelist)
-		Snakes = GameState#game_state.snakes,
-		SortedSnakes = lists:sort(fun compare_priority/2, Snakes),
-		LeaderQueue = queue:from_list(SortedSnakes),
+	    %% TODO: clarify if NodeId = SnakeId??
+	    %% TODO: create the leader queue based on the priority of the snakes in the snakeslists (sort snakelist)
+	    Snakes = GameState#game_state.snakes,
+	    SortedSnakes = lists:sort(fun compare_priority/2, Snakes),
+	    LeaderQueue = queue:from_list(SortedSnakes),
 	    game_manager_loop(#manager_state{nodeid = MyNodeId, game_info=GameInfo, leader_queue = LeaderQueue});
 
 	fail -> 
 	    %%If you can't join the game, you start a new game and become a leader.
 	    {_GameId, _Name, _NodeList} = GameInfo = create_new_game("DefaultName"),
-		%% TODO: create a new leader queue!! add priority when you start the new game
-		LeaderQueue = #manager_state.leader_queue,
-		NewLeaderQueue = queue:in(MyNodeId, LeaderQueue),
+	    %% TODO: create a new leader queue!! add priority when you start the new game
+	    NewLeaderQueue = queue:in(MyNodeId, queue:new()),
 	    %%start_game(MyNodeId),
 	    clock:start(),
 	    game_logic:start(MyNodeId, GameInfo),
@@ -78,7 +77,7 @@ make_leader(NodeId) ->
 add_to_leader_queue(AddedSnakes) ->
 	broadcast_to_mp({add_to_leader_queue, AddedSnakes}).
 
-update_leader_queue(LeaderQueue, [{SnakeId, _Position, _Dir} | OtherAddedSnakes]) ->
+update_leader_queue(LeaderQueue, [#snake{id=SnakeId} | OtherAddedSnakes]) ->
 	NewLeaderQueue = queue:in(SnakeId, LeaderQueue),
 	update_leader_queue(NewLeaderQueue, OtherAddedSnakes);
 update_leader_queue(LeaderQueue, []) ->
@@ -180,6 +179,10 @@ get_server_info() ->
 	ServerInfo ->
 	    ServerInfo
     end.
+
+add_player_to_game_info(NodeId) ->
+    game_manager ! {add_to_game_info, NodeId},
+    done.
 
 broadcast_tick(Tick) ->
     broadcast_tick(Tick, []).
@@ -294,51 +297,63 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    %% we can add the player
 	    %% going to add the player to the game state with an empty position
 	    message_passer:broadcast({game_logic, {add_player, NodeId, get(id)}}),
-        
-        %% create a checklist for acks
-        #manager_state{game_info = {_,_,NodeList}} = ManagerState,
-        IdList = [Id || {Id,_,_} <- NodeList],
-        put({NodeId, addplayer},IdList),
-        
-	    game_manager_loop(ManagerState);
-	{player_added, NodeId, AckSenderId} ->
-        %% make sure you receive acks from everyone else in the game
-        IdList = get({NodeId, addplayer}),
-        IdList1 = case IdList of
-                    undefined ->
-                        undefined;
-                    IdList -> 
-                        IdList -- [AckSenderId]
-                  end,
-        case IdList1 of
-            undefined ->
-                game_manager_loop(ManagerState);
-            [] ->
-                erase({NodeId, addplayer}),
-                
-                %% this is sent by the game logic when the player is added
-                Pid = get(NodeId),
-                Pid ! {player_added, NodeId},
-                erase(NodeId),
 
-	    %% add the player to the game server
+	    %% create a checklist for acks
+	    #manager_state{game_info = {_,_,NodeList}} = ManagerState,
+	    IdList = [Id || {Id,_,_} <- NodeList],
+	    put({NodeId, addplayer},IdList),
+
+	    game_manager_loop(ManagerState);
+	{add_to_game_info, NodeId} ->
+	    %% adding this nodeid to game info
 	    #manager_state{game_info={GameId, Name, NodeList}} = ManagerState,
 	    HostInfo = message_passer:get_host_info(NodeId),
-	    case send_message_to_game_server({set, add_player, {GameId, HostInfo}}) of
-		{ok, player_added} ->
-		    game_manager_loop(ManagerState#manager_state{game_info={GameId, Name, [HostInfo|NodeList]}});
-		{error, Reason} ->
-		    io:format("Add player failed ~p~n", [Reason]),
+	    io:format("adding a player ~p to nodelist ~p~n", [HostInfo, NodeList]),
+	    game_manager_loop(ManagerState#manager_state{game_info={GameId, Name, [HostInfo|NodeList]}});
+	{player_added, NodeId, AckSenderId} ->
+	    %% make sure you receive acks from everyone else in the game
+	    IdList = get({NodeId, addplayer}),
+	    IdList1 = case IdList of
+			  undefined ->
+			      undefined;
+			  IdList -> 
+			      IdList -- [AckSenderId]
+		      end,
+	    case IdList1 of
+		undefined ->
+		    game_manager_loop(ManagerState);
+		[] ->
+		    erase({NodeId, addplayer}),
+
+		    %% this is sent by the game logic when the player is added
+		    Pid = get(NodeId),
+		    Pid ! {player_added, NodeId},
+		    erase(NodeId),
+
+		    %% add the player to the game server
+		    #manager_state{game_info={GameId, _Name, NodeList}} = ManagerState,
+		    case lists:keyfind(NodeId, 1, NodeList) of
+			false ->
+			    io:format("ERROR: Could not add player ~p to the game info~n", [NodeId]),
+			    game_manager_loop(ManagerState);
+			HostInfo ->
+			    case send_message_to_game_server({set, add_player, {GameId, HostInfo}}) of
+				{ok, player_added} ->
+				    io:format("Adding player to game server succeeded~n"),
+				    game_manager_loop(ManagerState);
+				{error, Reason} ->
+				    io:format("Add player failed ~p~n", [Reason]),
+				    game_manager_loop(ManagerState)
+			    end
+		    end;
+		_Any ->
+		    put({NodeId, addplayer}, IdList1),
 		    game_manager_loop(ManagerState)
 	    end;
-        _Any ->
-              put({NodeId, addplayer}, IdList1),
-              game_manager_loop(ManagerState)
-        end;
 	{add_to_leader_queue, AddedSnakes} ->
-		LeaderQueue = ManagerState#manager_state.leader_queue,
-		NewLeaderQueue = update_leader_queue(LeaderQueue, AddedSnakes),
-		game_manager_loop(ManagerState#manager_state{leader_queue = NewLeaderQueue});
+	    LeaderQueue = ManagerState#manager_state.leader_queue,
+	    NewLeaderQueue = update_leader_queue(LeaderQueue, AddedSnakes),
+	    game_manager_loop(ManagerState#manager_state{leader_queue = NewLeaderQueue});
 	{check_for_leader, Pid} ->
 	    Pid ! {game_manager, is_leader_result, ManagerState#manager_state.leader},
 	    game_manager_loop(ManagerState);
@@ -350,34 +365,34 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    game_manager_loop(ManagerState#manager_state{leader=false});
 	{remove_leader, MyNodeId} ->
 	    %% this also makes sure that im not the leader
-		%% remove myself from the leader queue
-		game_manager_loop(ManagerState#manager_state{leader=false});
+	    %% remove myself from the leader queue
+	    game_manager_loop(ManagerState#manager_state{leader=false});
 	{remove_from_leader_queue, NodeId} ->
-		%% removes the dead node from the leader queue 
-		Pid = self(),
-		LeaderQueue = ManagerState#manager_state.leader_queue,
-		case queue:head(LeaderQueue) of
-			NodeId ->
-				case queue:out(LeaderQueue) of
-					{{value, SnakeId}, NewLeaderQueue} ->
-						io:format("SnakeId removed from the head of leaderqueue ~p: ~p~n", [SnakeId, NewLeaderQueue]);
-					{empty, LeaderQueue} ->
-							io:format("empty leaderqueue ~p~n", [LeaderQueue]),
-							NewLeaderQueue = LeaderQueue
-				end,	
-				%% send remove_leader and make_leader to self()
-				Pid ! {remove_leader, NodeId},
-				NewLeaderId = queue:head(NewLeaderQueue),
-				Pid ! {make_leader, NewLeaderId};
-				%% send remove_player to game_server : Ask Osei, where is the Player being created??
-				%%send_message_to_game_server({set, remove_player, Player});
-			_OtherNodeId ->
-				%% convert to queue to list, remove NodeId, and convert back to queue
-				LeaderList = queue:to_list(LeaderQueue),
-				NewLeaderList = lists:delete(NodeId, LeaderList),
-				NewLeaderQueue = queue:from_list(NewLeaderList)
-		end,
-		game_manager_loop(ManagerState#manager_state{leader_queue = NewLeaderQueue});
+	    %% removes the dead node from the leader queue 
+	    Pid = self(),
+	    LeaderQueue = ManagerState#manager_state.leader_queue,
+	    case queue:head(LeaderQueue) of
+		NodeId ->
+		    case queue:out(LeaderQueue) of
+			{{value, SnakeId}, NewLeaderQueue} ->
+			    io:format("SnakeId removed from the head of leaderqueue ~p: ~p~n", [SnakeId, NewLeaderQueue]);
+			{empty, LeaderQueue} ->
+			    io:format("empty leaderqueue ~p~n", [LeaderQueue]),
+			    NewLeaderQueue = LeaderQueue
+		    end,	
+		    %% send remove_leader and make_leader to self()
+		    Pid ! {remove_leader, NodeId},
+		    NewLeaderId = queue:head(NewLeaderQueue),
+		    Pid ! {make_leader, NewLeaderId};
+		%% send remove_player to game_server : Ask Osei, where is the Player being created??
+		%%send_message_to_game_server({set, remove_player, Player});
+		_OtherNodeId ->
+		    %% convert to queue to list, remove NodeId, and convert back to queue
+		    LeaderList = queue:to_list(LeaderQueue),
+		    NewLeaderList = lists:delete(NodeId, LeaderList),
+		    NewLeaderQueue = queue:from_list(NewLeaderList)
+	    end,
+	    game_manager_loop(ManagerState#manager_state{leader_queue = NewLeaderQueue});
 	Any ->
 	    io:format("Invalid message ~p~n", [Any]),
 	    game_manager_loop(ManagerState)

@@ -56,13 +56,12 @@ stop() ->
 init(Id, GameInfo) ->
 
     {_,_,NodeList} = GameInfo,
-	
+
     %%Snakes = gen_snakes(),
     Obstacles = gen_obstacles(),
-	%% to be removed - hardcode to NewPriority = 1)
-	Priority = 0,
-	NewPriority = update_priority(Priority),
-    GameState = #game_state{obstacles=Obstacles, myid = Id},
+    %% to be removed - hardcode to NewPriority = 1)
+    Priority = 0,
+    NewPriority = update_priority(Priority),
 
     Snakes = [#snake{id=NodeId, priority = NewPriority} || NodeId <- NodeList],
 
@@ -76,7 +75,7 @@ init(Id, GameInfo) ->
     put(expected_events, []),
 
     snake_ui:start(GameState#game_state.size),
-    
+
     %% there is a queue for each snake
     ReceivedMoveQueue = [{NodeId, queue:new()} || NodeId <- NodeList ],
     game_loop(GameState, ReceivedMoveQueue).
@@ -237,7 +236,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    Pid ! {self(), NewPos},
 	    game_loop(GameState#game_state{new_player_positions=[]}, ReceivedMoveQueue);
 	{Pid, get_game_state} ->
-	    io:format("Get Game State~n"),
+	    %%io:format("Get Game State~n"),
 	    Pid ! {self(), GameState},
 	    game_loop(GameState, ReceivedMoveQueue);
 	{become, Mod, Func} ->
@@ -255,13 +254,16 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 
 	    %% make the new node a player
 	    message_passer:make_player(NodeId),
+	    
+	    %% tell game manager to add the player info to the gameinfo
+	    game_manager:add_player_to_game_info(NodeId),
 
 	    %% send back an ack after adding the player to the handler
 	    game_manager:send_to_mp(HandlerId, {player_added, NodeId, MyId}),
 
 	    game_loop(GameState#game_state{snakes=Snakes1}, NewReceivedMoveQueue);
 	{tick, NewClock, Options} ->
-	    io:format ("Received tick for clock ~p old Clock ~p~n", [NewClock, Clock]),
+	    %%io:format ("Received tick for clock ~p old Clock ~p~n", [NewClock, Clock]),
 	    case Clock + 1 =:= NewClock of
 		true ->
 		    Snakes = GameState#game_state.snakes,
@@ -298,7 +300,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 					false ->
 					    NewGameState
 				    end,
-		    io:format("Finished generating food~n"),
+		    %%io:format("Finished generating food~n"),
 		    Snakes1 = NewGameState1#game_state.snakes, 
 		    put(expected_events, [SnakeId || #snake{id=SnakeId} <- Snakes1]),
 		    game_loop(NewGameState1, NewReceivedMoveQueue);
@@ -429,7 +431,7 @@ receive_all_events(MoveList) ->
 
 %% returns {NewGameState, NewMoveQueue}
 advance_game(GameState, MoveQueue) ->
-    io:format ("Inside advance game~n"),
+    %%io:format ("Inside advance game~n"),
     {GameState1, MoveQueue1} = move_snakes(GameState,MoveQueue),
 
     %% Results is basically some messages saying what happened as a result of evaluation
@@ -439,7 +441,7 @@ advance_game(GameState, MoveQueue) ->
     
     %% update the gui
     snake_ui:display(NewGameState, Results),
-    io:format ("Done updating display~n"),
+    %%io:format ("Done updating display~n"),
     {NewGameState, NewMoveQueue}.
 
 update_move_queue([{killed, SnakeId} | Results], MoveQueue) ->

@@ -58,7 +58,7 @@ loop(Can,Snakes_List,Obstacle_List,Food_List,Messages_List)->
 	    loop(Can,Snakes_List,Obstacle_List, Food_List1,Messages_List);
 
 	{display_snakes, List}->
-	    io:format("SnakesList ~p~n", [List]),
+	    %%io:format("SnakesList ~p~n", [List]),
 	    Messages_List1 = display_messages(List,Can), 
 	    Snakes_List1 = display_snakes(List, Can),
 	    object_disappear(Messages_List),
