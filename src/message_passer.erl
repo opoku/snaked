@@ -165,12 +165,12 @@ is_guest(#host_info{status=guest}) ->
     true.
 
 usend(Id, Msg, RegisteredList) ->
-    %%io:format("Sending unicast message to id ~p : ~p~n", [Id, Msg]),
+    io:format("--------------------Sending unicast message to id ~p : ~p~n", [Id, Msg]),
     #host_info{pid=Pid} = lists:keyfind(Id, #host_info.nodeid, RegisteredList),
     ok = tcp_comm:send_msg(Pid, Msg).
 
 bsend(Msg, RegisteredList) ->
-    %%io:format("Sending broadcast message : ~p~n", [Msg]),
+    io:format("--------------------Sending broadcast message : ~p~n", [Msg]),
     lists:foreach(fun (#host_info{pid=Pid}) -> ok = tcp_comm:send_msg(Pid, Msg)
 		  end, RegisteredList).
 

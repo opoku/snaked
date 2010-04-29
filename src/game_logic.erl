@@ -46,7 +46,7 @@
 %%% position of head (x,y), length
 
 start(Id, GameInfo) ->
-    Pid = spawn(game_logic, init, [Id, GameInfo]),
+    Pid = spawn_link(game_logic, init, [Id, GameInfo]),
     register(game_logic, Pid).
 
 stop() ->
@@ -409,9 +409,9 @@ update_new_snake_position(Snakes, [{SnakeId, Position, Dir} | Rest], Done) ->
 	    update_new_snake_position(Snakes, Rest, Done);
 	{value, Snake, OtherSnakes} ->
 	    Length = length(Position),
-		Priority = find_max_priority(Snakes),
-		NewPriority = update_priority(Priority),
-		%% TODO: set priority for the new added snakes -- loop thru snakes and find the max priority, new player priority is 1 more than max priority
+	    Priority = find_max_priority(Snakes),
+	    NewPriority = update_priority(Priority),
+	    %% TODO: set priority for the new added snakes -- loop thru snakes and find the max priority, new player priority is 1 more than max priority
 	    update_new_snake_position(OtherSnakes, Rest, [Snake#snake{position=queue:from_list(Position), length=Length, direction=Dir, priority = NewPriority} | Done])
     end;
 update_new_snake_position(Snakes, [], Done) ->
