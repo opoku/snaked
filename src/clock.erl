@@ -14,7 +14,7 @@
 -define(FOOD_GENERATION_INTERVAL, 10).
 
 start() ->
-    start(200).
+    start(500).
 
 start(TimeOut) ->
     spawn(clock, init, [TimeOut]).

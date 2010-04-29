@@ -458,7 +458,9 @@ evaluate_snakes(GS) ->
     %% returns {NewGameState, Results}  where results is the deaths or foods obtained
     %% determine which snakes are dead and which snakes are able to eat any food
     {GS1, Results1} = evaluate_obstacles(GS),
+    ?LOG("Results after evaluating obstacles:~p~n", [Results1]),
     {GS2, Results2} = evaluate_food(GS1),
+    ?LOG("Results after evaluating food:~p~n", [Results2]),
     {GS2, Results1 ++ Results2}.
 
 

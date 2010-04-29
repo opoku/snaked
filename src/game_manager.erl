@@ -368,10 +368,6 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 			{1, Rest1} ->
 			    %% someone else must now be one
 			    ?LOG("We have a new leader.  new NodeList: ~p~n", [Rest1]),
-			    
-			    %% stop my clock
-			    clock:stop(),
-
 			    #host_info{id=NewLeaderId} = lists:keyfind(1, #host_info.priority, Rest1),
 			    game_manager ! {make_leader, NewLeaderId};
 			_Other ->
