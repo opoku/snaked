@@ -172,12 +172,12 @@ is_guest(#host_info{status=guest}) ->
     true.
 
 usend(Id, Msg, RegisteredList) ->
-    ?LOG("--------------------Sending unicast message to id ~p : ~p~n", [Id, Msg]),
+    ?LOG("------Sending unicast message to id ~p : ~p~n", [Id, Msg]),
     #host_info{pid=Pid} = lists:keyfind(Id, #host_info.nodeid, RegisteredList),
     ok = tcp_comm:send_msg(Pid, Msg).
 
 bsend(Msg, RegisteredList) ->
-    ?LOG("--------------------Sending broadcast message : ~p to ~p~n", [Msg, RegisteredList]),
+    ?LOG("-----Sending broadcast message : ~p to ~p~n", [Msg, [ NodeId || #host_info{nodeid=NodeId}<-RegisteredList]]),
     lists:foreach(fun (#host_info{pid=Pid}) -> ok = tcp_comm:send_msg(Pid, Msg)
 		  end, RegisteredList).
 

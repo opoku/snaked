@@ -421,7 +421,9 @@ advance_game(GameState, MoveQueue) ->
     %%?LOG("Done updating display~n",[]),
     {NewGameState, NewMoveQueue}.
 
+%% this basically tells the node that this snake ID is killed
 update_game_connections([{killed, SnakeId} | Results]) ->
+    ?LOG("Snake ID ~p is kill so removing it~n", [SnakeId]),
     game_manager:remove_from_game_info(SnakeId),
     message_passer:disconnect_from_nodeid(SnakeId),
     update_game_connections(Results);

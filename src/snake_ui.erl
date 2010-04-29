@@ -2,7 +2,8 @@
 -export([start/1, display/2, start_gui/1, stop/0, display_obstacles/1]).
 -include("common.hrl").
 -include("game_state.hrl").
-
+-undef(MODULE_DEBUG).
+-define(MODULE_DEBUG,false).
 
 start(Coords)->
     Pid = spawn_link(snake_ui, start_gui, [Coords]),
