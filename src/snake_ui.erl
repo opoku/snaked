@@ -13,7 +13,7 @@ stop() ->
 start_gui({X,Y}) ->
     S = gs:start(),
     Win = gs:create(window,S,[{width,750},{height,550},{buttonpress,true},{keypress,true}]),
-    Can = gs:create(canvas,Win,[{width, ((X * 10) + 200)},{height, (Y * 10)},{bg,white},{keypress,true}]),
+    Can = gs:create(canvas,Win,[{width, ((X * 10) + 300)},{height, (Y * 10)},{bg,white},{keypress,true}]),
     Snakes_List = [],
     %%Line = gs:create(line,Can,[{coords,[{100,100},{100,110}]},{arrow,none},{width,5}]),
     gs:config(Win,[{map,true},raise]),
@@ -185,13 +185,21 @@ display_messages([],_,_,Results)->
 message(#snake{id=Id,score=S,lives=L},Can,{X,Y})->
     Text1 = Id,
     One = gs:create(text,Can,[{coords,[{X,Y}]},{text,Text1},{font,{times,12}},{fg,black}]),
+    Colors_List = get(list_Of_Colors),
+    Color_tuple = lists:keysearch(Id, 2, Colors_List),
+    io:format("Color ~p\n", [Color_tuple]),
+    case Color_tuple of
+	{value,{Color1,Id}} -> Color = Color1;
+	false -> Color = white
+	end,
+    Color_Box = gs:create(rectangle,Can,[{coords, [{X+80,Y},{X+90,Y+10}]},{fill,Color},{bw,2}]),
     Text2 = "Score:",
-    Two = gs:create(text,Can,[{coords,[{X,Y+20}]},{text,Text2},{font,{times,12}},{fg,black}]),
+    Two = gs:create(text,Can,[{coords,[{X+100,Y}]},{text,Text2},{font,{times,12}},{fg,black}]),
     Text3 = S,
-    Thr = gs:create(text,Can,[{coords,[{X,Y+40}]},{text,Text3},{font,{times,12}},{fg,black}]),
+    Thr = gs:create(text,Can,[{coords,[{X+125,Y}]},{text,Text3},{font,{times,12}},{fg,black}]),
     Text4 = "Lives:",
-    Four = gs:create(text,Can,[{coords,[{X,Y+60}]},{text,Text4},{font,{times,12}},{fg,black}]),
+    Four = gs:create(text,Can,[{coords,[{X+160,Y}]},{text,Text4},{font,{times,12}},{fg,black}]),
     Text5 = L,
-    Five = gs:create(text,Can,[{coords,[{X,Y+80}]},{text,Text5},{font,{times,12}},{fg,black}]),
-    [One,Two,Thr,Four,Five] .    
+    Five = gs:create(text,Can,[{coords,[{X+185,Y}]},{text,Text5},{font,{times,12}},{fg,black}]),
+    [One,Color_Box,Two,Thr,Four,Five] .    
 
