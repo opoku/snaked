@@ -21,6 +21,8 @@ start_gui({X,Y}) ->
     Food_List = [],
     Obstacle_List = [],
     Messages_List = [],
+    Colors_List = [{red,none},{blue,none},{green,none},{yellow,none},{orange,none},{pink,none},{purple,none},{brown,none}],
+    put(list_Of_Colors, Colors_List),
     %%dont_end().
 
     loop(Can,Snakes_List,Obstacle_List,Food_List,Messages_List).
@@ -117,7 +119,7 @@ obstacles(#object{type = obstacle, position = Coords},Can)->
     gs:create(line, Can, [{coords,resize(Coords1)},{fg,black},{width,10}]).
 
 display_food(List,Can)->
-    io:format("display food called... ~nFoodlist ~p~n", [List]),
+    %%io:format("display food called... ~nFoodlist ~p~n", [List]),
     lists:map(fun(X) -> food(X,Can) end, List).
 
 food(#food{position = [{X,Y}]}, Can)->
@@ -125,20 +127,33 @@ food(#food{position = [{X,Y}]}, Can)->
     gs:create(rectangle, Can, [{coords,[{X1-5,Y1-5},{X1+5,Y1+5}]},{fg,green}, {fill,green}]).
 
 display_snakes(List,Can)->
-    lists:delete(false, lists:map(fun(X)->snak(X,Can) end, List)).
+    lists:delete({false}, lists:map(fun(X)-> snak(X,Can) end, List)).
 
-snak(#snake{position = P},Can)->
+
+snak(#snake{position = P,id = Id},Can)->
     Coords = queue:to_list(P),
     Len = length(Coords),
+    Colors_List = get(list_Of_Colors),
+    Color_Tuple = lists:keysearch(Id, 2, Colors_List),
+    case Color_Tuple of
+	{value, Snake_Color} -> {Color,_} = Snake_Color,
+			New_Colors_List = Colors_List;
+	false -> {value,New_Snake_Color} = lists:keysearch(none,2,Colors_List),
+			{Color, none} = New_Snake_Color,
+		     	New_Colors_List = lists:keyreplace(Color,1,Colors_List,{Color,Id})
+	end,
+    erase(list_Of_Colors),
+    put(list_Of_Colors, New_Colors_List),
     case Len of
 	1 -> [{X,Y}] = Coords,
 	     Coords1 = [{X,Y},{X,Y}],
-	     gs:create(line, Can, [{coords,resize(Coords1)}, {fg,cyan},{width, 10}]);
-	0 -> false;
+	     Ret = gs:create(line, Can, [{coords,resize(Coords1)}, {fg,Color},{width, 10}]);
+	0 -> Ret = false;
 
 	_Default-> 
-	     gs:create(line, Can, [{coords,resize(Coords)}, {fg,cyan},{width, 10}])
-    end.
+	     Ret = gs:create(line, Can, [{coords,resize(Coords)}, {fg,Color},{width, 10}])
+    end,
+    Ret.
     
 
 %%display_snakes(List, Can, Snakes_List)->

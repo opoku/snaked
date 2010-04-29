@@ -274,8 +274,9 @@ game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 					false ->
 					    NewGameState
 				    end,
-		    Snakes = NewGameState1#game_state.snakes,
-		    put(expected_events, [SnakeId || #snake{id=SnakeId} <- Snakes]),
+		    io:format("Finished generating food~n"),
+		    Snakes1 = NewGameState1#game_state.snakes,
+		    put(expected_events, [SnakeId || #snake{id=SnakeId} <- Snakes1]),
 		    game_loop(NewGameState1, NewReceivedMoveQueue);
 
 		_Any -> % ignore other 
@@ -322,7 +323,7 @@ game_loop (#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 get_missing_snakes(SnakeList) ->
     case get(expected_events) of
 	[] ->
-	    true;
+	    [];
 	ExpectedEvents ->
 	    lists:filter(fun (SnakeId) -> lists:member(SnakeId, ExpectedEvents) end, SnakeList)
     end.
