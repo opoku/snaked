@@ -179,7 +179,7 @@ loop(ServerState) ->
 	%% communication with processes
 	{recvdata, Pid, Data} ->
 	    %% recv'd data from external node.. lets decide what do with it
-	    %%io:format("------Received message ~p~n", [Data]),
+	    io:format("------Received message ~p~n", [Data]),
 	    case Data of 
 		{register, NodeId, Port} ->
 		    Ip = tcp_comm:get_host_ip(Pid),
