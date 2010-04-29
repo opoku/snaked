@@ -57,6 +57,10 @@ send_msg(Pid, Msg) ->
 	{Pid, Any} ->
 	    Any
     end.
+
+disconnect(Pid) ->
+    Pid ! {disconnect},
+    done.
     
 send_node_id() ->
     {MyNodeId, MyNodePort} = message_passer:get_node_info(),
@@ -92,6 +96,9 @@ comm_loop(#comm_state{socket=Socket, myseqno=SeqNo} = CommState) ->
 	    Result = gen_tcp:send(Socket, BinData),
 	    Pid ! {self(), Result},
 	    comm_loop(CommState#comm_state{myseqno=SeqNo+1});
+	{disconnect} ->
+	    %% close socket and finish loopp
+	    gen_tcp:close(Socket);
 	{getip, Pid} ->
 	    case inet:peername(Socket) of
 		{ok, {Address, _Port}} ->
@@ -103,7 +110,7 @@ comm_loop(#comm_state{socket=Socket, myseqno=SeqNo} = CommState) ->
 	{debug} ->
 	    io:format("Debug info:~p", [CommState]),
 	    comm_loop(CommState)
-    end.    
+    end.
 
 self_comm_loop(Port) ->
     receive
@@ -113,6 +120,10 @@ self_comm_loop(Port) ->
 	    self_comm_loop(Port);
 	{getip, Pid} ->
 	    Pid ! {self(), {127,0,0,1}},
+	    self_comm_loop(Port);
+	{disconnect} ->
+	    %% ignore disconnect call and in fact reconnect to yourself
+	    send_node_id(),
 	    self_comm_loop(Port);
 	{debug} ->
 	    io:format("Debug info for self loop:~p", [Port]),

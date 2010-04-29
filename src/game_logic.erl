@@ -399,12 +399,21 @@ advance_game(GameState, MoveQueue) ->
     %% Results is basically some messages saying what happened as a result of evaluation
     {GameState2, Results} = evaluate_snakes(GameState1),
     NewMoveQueue = update_move_queue(Results, MoveQueue1),
+    update_game_connections(Results),
     NewGameState = advance_clock(GameState2),
     
     %% update the gui
     snake_ui:display(NewGameState, Results),
     io:format ("Done updating display~n"),
     {NewGameState, NewMoveQueue}.
+
+update_game_connections([{killed, SnakeId} | Results]) ->
+    mesage_passer:disconnect_from_nodeid(SnakeId),
+    update_game_connections(Results);
+update_game_connections([H|L]) ->
+    update_game_connections(L);
+update_game_connections([]) ->
+    ok.
 
 update_move_queue([{killed, SnakeId} | Results], MoveQueue) ->
     NewMoveQueue = lists:keydelete(SnakeId, 1, MoveQueue),
@@ -461,9 +470,7 @@ process_dead_snakes([DeadSnake | OtherDeadSnakes],DeadSnakes1,RegeneratedSnakes,
     case SnakeLives > 0 of
 	true ->
 	    SnakeLivesLeft = SnakeLives - 1,
-	    %%TODO: use a better border generate function%
-					{SnakeId, NewPosition, Dir}  = generate_new_snake_position(SnakeId, length(RegeneratedSnakes), GridSize), 
-	    %%NewPosition = in({1,1},in({2,1},in({3,1},queue:new()))),
+	    {SnakeId, NewPosition, Dir}  = generate_new_snake_position(SnakeId, length(RegeneratedSnakes), GridSize), 
 	    NewSnake = DeadSnake#snake{lives=SnakeLivesLeft,position=queue:from_list(NewPosition),direction = Dir,length=length(NewPosition)},
 	    Results1 = [{regenerated,SnakeId} | Results],
 	    RegeneratedSnakes1 = [NewSnake | RegeneratedSnakes],
@@ -482,8 +489,8 @@ evaluate_obstacles(GS) ->
     #game_state{snakes=Snakes, obstacles=Obs, size = GridSize} = GS,
     ObstacleMap = build_obstacle_map(Snakes ++ Obs),
     {DeadSnakes, AliveSnakes} = lists:partition(fun(Snake) -> detect_collision(Snake, ObstacleMap) end, Snakes),
-	{_DeadSnakes1,RegeneratedSnakes,Results} = process_dead_snakes(DeadSnakes, GridSize),
-	AliveSnakes1 = AliveSnakes ++ RegeneratedSnakes,
+    {DeadSnakes1,RegeneratedSnakes,Results} = process_dead_snakes(DeadSnakes, GridSize),
+    AliveSnakes1 = AliveSnakes ++ RegeneratedSnakes,
     {GS#game_state{snakes=AliveSnakes1}, Results}.
 
 build_obstacle_map(Objects) ->

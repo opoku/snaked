@@ -79,6 +79,10 @@ connect(Host, Port) ->
             {error}
     end.
 
+disconnect_from_nodeid(NodeId) ->
+    message_passer ! {disconnect, NodeId},
+    done.
+
 get_lock(OnResource) ->
     message_passer ! {getLock, self(), OnResource},
     receive
@@ -266,6 +270,16 @@ loop(ServerState) ->
 	    NewConnectWaitQueue = [{ConnectingNodeId, {Host, Port}}|ConnectWaitQueue],
 	    tcp_comm:start_client(Host,Port),
 	    loop(ServerState#server_state{connect_wait_queue=NewConnectWaitQueue});
+	{disconnect, NodeId} ->
+	    io:format("Request to disconnect from ~p~n", [NodeId]),
+	    RegisteredList = ServerState#server_state.registered_list,
+	    case lists:keytake(NodeId, #host_info.nodeid, RegisteredList) of
+		{value, #host_info{pid=Pid}, NewRegisteredList} ->
+		    tcp_comm:disconnect(Pid),
+		    loop(ServerState#server_state{registered_list=NewRegisteredList});
+		false ->
+		    loop(ServerState)
+	    end;
 	{getinfo, Pid} ->
 	    #server_state{myid = Id, myport = Port} = ServerState,
 	    Pid ! {message_passer, {Id, Port}},
