@@ -170,7 +170,7 @@ usend(Id, Msg, RegisteredList) ->
     ok = tcp_comm:send_msg(Pid, Msg).
 
 bsend(Msg, RegisteredList) ->
-    io:format("--------------------Sending broadcast message : ~p~n", [Msg]),
+    io:format("--------------------Sending broadcast message : ~p to ~p~n", [Msg, RegisteredList]),
     lists:foreach(fun (#host_info{pid=Pid}) -> ok = tcp_comm:send_msg(Pid, Msg)
 		  end, RegisteredList).
 
