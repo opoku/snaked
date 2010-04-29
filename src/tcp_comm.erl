@@ -15,10 +15,10 @@ start_client(Host, Port) ->
     spawn(tcp_comm, client_start, [Host, Port]).
 
 client_connect(Host, Port) ->
-    case gen_tcp:connect(Host, Port, [binary, {packet, 0}]) of
+    case gen_tcp:connect(Host, Port, [binary, {packet, 4}]) of
 	{ok, Socket}-> Socket;
 	{error, Reason}->io:format("Error on connect Socket ~p. Trying again~n", [Reason]), 
-		client_connect(Host, Port)
+			 client_connect(Host, Port)
     end.	
 
 client_start({127,0,0,1}, Port) ->

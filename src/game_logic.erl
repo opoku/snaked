@@ -103,21 +103,22 @@ gen_obstacles() ->
 update_priority(Priority) ->
 	 Priority + 1.
 
-find_max_priority([Snake | OtherSnakes]) ->
-	find_max_priority(OtherSnakes, Snake).
+find_max_priority(Snakes) ->
+    lists:max([Priority || #snake{priority=Priority} <- Snakes]).
+%% 	find_max_priority(OtherSnakes, Snake).
 
-find_max_priority([NewSnake | OtherSnakes], Snake) ->
-	P1 = NewSnake#snake.priority,
-	P2 = Snake#snake.priority,
+%% find_max_priority([NewSnake | OtherSnakes], Snake) ->
+%% 	P1 = NewSnake#snake.priority,
+%% 	P2 = Snake#snake.priority,
 	
-	if P1 > P2 ->
-		   Snake = NewSnake;
-	   true ->
-		   Snake = Snake
-	end,
-	find_max_priority(OtherSnakes,Snake);
-find_max_priority([], Snake) ->
-	Snake#snake.priority.
+%% 	if P1 > P2 ->
+%% 		   Snake1 = NewSnake;
+%% 	   true ->
+%% 		   Snake1 = Snake
+%% 	end,
+%% 	find_max_priority(OtherSnakes,Snake1);
+%% find_max_priority([], Snake) ->
+%% 	Snake#snake.priority.
 
 debug() ->
     game_logic ! {self(), get_state},
