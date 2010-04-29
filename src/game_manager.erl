@@ -319,6 +319,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 			  IdList -> 
 			      IdList -- [AckSenderId]
 		      end,
+	    ?LOG("Remaining  player_added acks expected for ~p : ~p~n", [NodeId, IdList1]),
 	    case IdList1 of
 		undefined ->
 		    game_manager_loop(ManagerState);
@@ -346,11 +347,13 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    game_manager_loop(ManagerState);
 	{make_leader, MyNodeId} ->
 	    %% If the nodeid is mine then make myself the leader
+	    ?LOG("I have been made the leader~n",[]),
 	    #game_state{clock=Tick} = game_logic:get_game_state(),
 	    clock:set_tick(Tick),
 	    game_manager_loop(ManagerState#manager_state{leader=true});
-	{make_leader, _OtherNodeId} ->
+	{make_leader, OtherNodeId} ->
 	    %% if the nodeid is not mine then make sure that I'm not the leader
+	    ?LOG("I am making someone else ~p a leader~n",[OtherNodeId]),
 	    game_manager_loop(ManagerState#manager_state{leader=false});
 	{remove_leader, MyNodeId} ->
 	    %% this also makes sure that im not the leader

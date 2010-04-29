@@ -418,7 +418,7 @@ advance_game(GameState, MoveQueue) ->
     
     %% update the gui
     snake_ui:display(NewGameState, Results),
-    %%?LOG("Done updating display~n",[]),
+    ?LOG("Done updating display~n",[]),
     {NewGameState, NewMoveQueue}.
 
 %% this basically tells the node that this snake ID is killed
