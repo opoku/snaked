@@ -245,9 +245,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    case Clock + 1 =:= NewClock of
 		true ->
 		    Snakes = GameState#game_state.snakes,
-		    SnakeIdList = [SnakeId || #snake{id=SnakeId} <- Snakes],
-
-		    case get_missing_snakes(SnakeIdList) of
+		    case get_missing_snakes(Snakes) of
 			[] ->
 			    %% ok
 			    done;
@@ -338,7 +336,9 @@ get_missing_snakes(SnakeList) ->
 	[] ->
 	    [];
 	ExpectedEvents ->
-	    lists:filter(fun (SnakeId) -> lists:member(SnakeId, ExpectedEvents) end, SnakeList)
+	    lists:filter(fun (#snake{id=SnakeId,position=Pos}) ->
+				 lists:member(SnakeId, ExpectedEvents) and not(queue:is_empty(Pos))
+			 end, SnakeList)
     end.
 
 generate_new_snake_position(SnakeId, NumNewPlayers, {GridX, GridY}) ->
