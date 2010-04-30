@@ -394,7 +394,14 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    game_manager_loop(ManagerState);
 	{'EXIT', Pid, Reason} ->
 	    ?LOG("Process ~p died : ~p~n", [Pid, Reason]),
-	    game_manager_loop(ManagerState);
+	    case whereis(game_logic) of
+		undefined -> %% game_logic is dead
+		    message_passer:stop(),
+		    clock:stop(),
+		    ?LOG("I am dying~n",[]);
+		_Else ->
+		    game_manager_loop(ManagerState)
+	    end;
 	{restart} ->
 	    game_logic:stop(),
 	    message_passer:stop(),
