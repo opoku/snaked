@@ -49,7 +49,7 @@ init(MyNodeId, DefaultPort) ->
 	    %%If you joined a game, you will receive the game state from the current game.
 	    spawn(game_manager, game_monitor, [GameId, MyNodeId, DefaultPort]),
 	    game_logic:update_game_state(GameState),
-
+	    clock:start(),
 	    game_manager_loop(#manager_state{nodeid = MyNodeId, game_info=GameInfo});
 
 	fail -> 
