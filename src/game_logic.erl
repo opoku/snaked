@@ -139,6 +139,40 @@ start_game() ->
     game_logic ! {start_game},
     ok.
 
+prepare_to_join(GameState, RMQ) ->
+    case get(unseen_nodes) of
+	[] ->
+	    %% i have seen all the nodes
+	    %% so tell the game manager
+	    ?LOG("I have seen all the nodes so Im telling the game manager~n",[]),
+	    game_manager ! {started, game_logic},
+	    receive
+		{game_state, #game_state{clock=Clock, snakes=Snakes} = NewGameState} ->
+		    ?LOG("I have received the game state~n",[]),
+		    %% erase(Key) returns value and then erases the key
+		    %% keep all the ticks that are after the clock in
+		    %% game state
+		    Ticks = [Tick || {tick, NewClock, _} = Tick <- lists:reverse(erase(ticks)), NewClock > Clock ],
+
+		    %% keep all events that are for the current clock and after
+		    Events = [Event || {move, _, EventClock1, _} = Event <- lists:reverse(erase(events)), EventClock1 >= Clock ],
+
+		    lists:foreach(fun(M) -> self() ! M end, Events ++ Ticks ),
+
+		    %% clears the last element in process dictionary
+		    erase(unseen_nodes),
+		    RMQ1 = [{SnakeId1, queue:new()} || #snake{id = SnakeId1} <- Snakes],
+
+		    %%explicitly display obstacles before starting the game
+		    snake_ui:display_obstacles(NewGameState#game_state.obstacles),
+
+		    game_loop(NewGameState#game_state{myid=GameState#game_state.myid}, RMQ1)
+	    end;
+	_Any ->
+	    game_loop(GameState, RMQ)		    
+    end.
+
+
 game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
     %%?LOG("DEBUG: new game loop~n",[]),
     receive
@@ -150,37 +184,11 @@ game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
 	    put(events, [Msg|get(events)]),
 	    Unseen = get(unseen_nodes) -- [SnakeId],
 	    put(unseen_nodes, Unseen),
-	    case Unseen of
-		[] ->
-		    %% i have seen all the nodes
-		    %% so tell the game manager
-		    ?LOG("I have seen all the nodes so Im telling the game manager~n",[]),
-		    game_manager ! {started, game_logic},
-		    receive
-			{game_state, #game_state{clock=Clock, snakes=Snakes} = NewGameState} ->
-			    ?LOG("I have received the game state~n",[]),
-			    %% erase(Key) returns value and then erases the key
-			    %% keep all the ticks that are after the clock in
-			    %% game state
-			    Ticks = [Tick || {tick, NewClock, _} = Tick <- lists:reverse(erase(ticks)), NewClock > Clock ],
-
-			    %% keep all events that are for the current clock and after
-			    Events = [Event || {move, _, EventClock1, _} = Event <- lists:reverse(erase(events)), EventClock1 >= Clock ],
-
-			    lists:foreach(fun(M) -> self() ! M end, Events ++ Ticks ),
-
-			    %% clears the last element in process dictionary
-			    erase(unseen_nodes),
-			    RMQ1 = [{SnakeId1, queue:new()} || #snake{id = SnakeId1} <- Snakes],
-
-			    %%explicitly display obstacles before starting the game
-			    snake_ui:display_obstacles(NewGameState#game_state.obstacles),
-
-			    game_loop(NewGameState#game_state{myid=MyId}, RMQ1)
-		    end;
-		_Any ->
-		    game_loop(GameState, RMQ)		    
-	    end;
+	    prepare_to_join(GameState,RMQ);
+	{kill_snake, SnakeId} ->
+	    Unseen = get(unseen_nodes) -- [SnakeId],
+	    put(unseen_nodes, Unseen),
+	    prepare_to_join(GameState, RMQ);
 	{start_game} ->
 	    %%explicitly display obstacles before starting the game
 	    snake_ui:display_obstacles(GameState#game_state.obstacles),
@@ -285,7 +293,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		[] ->
 		    %% ok
 		    %%?LOG("Advancing Clock~n",[]),
-		    MoveEvents = receive_all_events(),
+		    MoveEvents = receive_one_event(),
 		    MoveMsg = {game_logic, {move, MyId, NewClock, MoveEvents}},
 
 		    %% always broadcast the events even if the movelist is empty
@@ -339,10 +347,14 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		    game_loop(GameState, ReceivedMoveQueue)
 	    end;
 	{kill_snake, SnakeId} ->
+
+	    IdList = get(expected_events) -- [SnakeId],
+	    put(expected_events, IdList),
+	    
 	    %% kill snake => remove snake from all the data structures
 	    Snakes = GameState#game_state.snakes,
-	    NewSnakes = lists:keydelete(SnakeId, 1, Snakes),
-	    NewReceivedMoveQueue = 	lists:keydelete(SnakeId, 1, ReceivedMoveQueue),
+	    NewSnakes = lists:keydelete(SnakeId, #snake.id, Snakes),
+	    NewReceivedMoveQueue = lists:keydelete(SnakeId, 1, ReceivedMoveQueue),
 	    game_loop(GameState#game_state{snakes = NewSnakes}, NewReceivedMoveQueue) 
     end.
 
@@ -411,6 +423,14 @@ update_new_snake_position(Snakes, [], Done) ->
 
 %% we haven't received the gui events until now. now we just receive all of them an put
 %% them in a list in the order they were sent.
+receive_one_event() ->
+    receive
+	{event, Direction} ->
+	    [Direction]
+    after 0 ->
+	    []
+    end.
+
 receive_all_events() ->
     receive_all_events([]).
 
