@@ -26,12 +26,12 @@ debug() ->
 	    Any
     end.
 
-game_monitor(GameId, NodeId, Port) ->
+game_monitor(GameId, NodeId) ->
     MonRef = erlang:monitor(process, game_manager),
     receive
 	{'DOWN', MonRef, process, _Name, Info } ->
 	    ?LOG("Game manager down: ~p.  Removing from game_server~n", [Info]),
-	    send_message_to_game_server({set, remove_player, {GameId, {NodeId, {127,0,0,1}, Port}}})
+	    send_message_to_game_server({set, remove_player, {GameId, NodeId}})
     end.
 
 init(MyNodeId, DefaultPort) ->
@@ -47,7 +47,7 @@ init(MyNodeId, DefaultPort) ->
     case join_game() of 
 	{ok, {GameId, _, _} = GameInfo, GameState} ->
 	    %%If you joined a game, you will receive the game state from the current game.
-	    spawn(game_manager, game_monitor, [GameId, MyNodeId, DefaultPort]),
+	    spawn(game_manager, game_monitor, [GameId, MyNodeId]),
 	    game_logic:update_game_state(GameState),
 	    clock:start(),
 	    game_manager_loop(#manager_state{nodeid = MyNodeId, game_info=GameInfo});
@@ -147,8 +147,7 @@ add_player_to_game_server(GameId, NodeId) ->
 
 remove_player_from_game_server(GameId, NodeId) ->
     ?LOG("Removing player ~p from game server", [NodeId]),
-    HostInfo = message_passer:get_host_info(NodeId),
-    case send_message_to_game_server({set, remove_player, {GameId, HostInfo}}) of
+    case send_message_to_game_server({set, remove_player, {GameId, NodeId}}) of
 	{ok, player_removed} ->
 	    ?LOG("Removed player from game server succeeded~n",[]);
 	{error, Reason} ->
@@ -340,7 +339,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 		    
 		    %% add the player to the game server
 		    {GameId,_,_} = ManagerState#manager_state.game_info,
-		    add_player_to_game_server(GameId, NodeId),
+		    spawn(fun () -> add_player_to_game_server(GameId, NodeId) end),
 		    game_manager_loop(ManagerState);
 		_Any ->
 		    put({NodeId, addplayer}, IdList1),
@@ -369,7 +368,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    case lists:keytake(NodeId, #host_info.id, NodeList) of
 		{value, #host_info{priority=NodePriority}, RestOfNodeList} ->
 		    %% this function will update the other node priorities accordingly
-		    remove_player_from_game_server(GameId, NodeId),
+		    spawn(fun () -> remove_player_from_game_server(GameId, NodeId) end),
 		    Rest1 = update_node_list(NodePriority, RestOfNodeList),
 		    case {NodePriority, Rest1} of
 			{1, []} ->

@@ -141,18 +141,11 @@ process_connection(Socket, #comm_state{game_list = GameList, gameid = CurrentGam
 			    gen_tcp:send(Socket, term_to_binary({error, {game_not_found, GameId}})),
 			    CommState
 		    end;
-		{set, remove_player, {GameId, {PlayerId, Ip, Port} = Player}} ->
-		    Player1 = case Ip of
-				  {127,0,0,1} -> % an localhost means the game_server should figure out the ip
-				      {ok, {HostIp, _Port}} = inet:peername(Socket),
-				      {PlayerId, HostIp, Port};
-				  Ip ->
-				      Player
-			      end,
+		{set, remove_player, {GameId, PlayerId}} ->
 		    case lists:keyfind(GameId, 1, GameList) of
 			{GameId, Name, NodeList} ->
 			    Len1 = length(NodeList),
-			    NewNodeList = NodeList -- [Player1],
+			    NewNodeList = lists:keydelete(PlayerId, 1, NodeList),
 			    Len2 = length(NewNodeList),
 			    case Len2 of
 				0 ->
@@ -164,7 +157,7 @@ process_connection(Socket, #comm_state{game_list = GameList, gameid = CurrentGam
 				    CommState#comm_state{game_list=NewGameList};
 				Len1 ->
 				    %% nothing removed
-				    gen_tcp:send(Socket, term_to_binary({error, {player_not_found, Player}})),
+				    gen_tcp:send(Socket, term_to_binary({error, {player_not_found, PlayerId}})),
 				    CommState;
 				_Other ->
 				    %% something happened
