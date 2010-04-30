@@ -343,6 +343,16 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 			false ->
 			    nothing
 		    end,
+		    case get({tick, Clock}) of
+			undefined -> put({tick, Clock}, 50);
+			0 ->
+			    %% kill this missing node
+			    ?LOG("Killing the stupid snakes ~p~n", [MissingSnakes]),
+			    erase({tick, Clock}),
+			    lists:foreach(fun(SnakeId) -> self() ! {kill_snake, SnakeId} end, MissingSnakes);
+			N ->
+			    put({tick, Clock}, N-1)
+		    end,
 		    erlang:send_after(50, game_logic, Tick),
 		    game_loop(GameState, ReceivedMoveQueue)
 	    end;
