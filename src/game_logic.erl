@@ -233,7 +233,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    spawn(fun () ->
 			  %% make the new node a player
 			  message_passer:make_player(NodeId),
-			  
+
 			  %% tell game manager to add the player info to the gameinfo
 			  game_manager:add_player_to_game_info(NodeId)
 		  end),
@@ -258,7 +258,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		{true, #snake{length=0}} ->
 		    %% zero length snake and i am the leader
 		    NewSnakePosList = GameState#game_state.new_player_positions,
-						GridSize = GameState#game_state.size,
+		    GridSize = GameState#game_state.size,
 		    NewSnakePosList1 = [generate_new_snake_position(SnakeId, length(NewSnakePosList), GridSize) | NewSnakePosList],
 		    game_loop(GameState#game_state{new_player_positions=NewSnakePosList1}, ReceivedMoveQueue);
 		{false, #snake{length=0}} ->
@@ -277,7 +277,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		    %% do nothing
 		    game_loop(GameState, ReceivedMoveQueue)
 	    end;
-	{tick, NewClock, Options} = _Tick ->
+	{tick, NewClock, Options} = Tick ->
 	    ?LOG("Received tick for clock ~p old Clock ~p~n", [NewClock, Clock]),
 	    case Clock + 1 =:= NewClock of
 		true ->
@@ -285,50 +285,49 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		    case get_missing_snakes(Snakes) of
 			[] ->
 			    %% ok
-			    done;
+			    %%?LOG("Advancing Clock~n",[]),
+			    MoveEvents = receive_all_events(),
+			    MoveMsg = {game_logic, {move, MyId, NewClock, MoveEvents}},
+
+			    %% always broadcast the events even if the movelist is empty
+			    message_passer:broadcast(MoveMsg),
+
+			    %% two possisble options so far: new food and new player positions.
+			    %% They are indexed in the options list by the atoms food and newpos
+			    %% TODO Ask Osei: where is the new player position being indexed in the options list??
+			    NewGameState0 = process_options(GameState, Options),
+
+			    {NewGameState, NewReceivedMoveQueue} = advance_game(NewGameState0, ReceivedMoveQueue),
+			    %% We create new food here for use by the clock whenever it wants to use.
+
+			    NewGameState1 = case game_manager:is_leader() of
+						true ->
+						    food:generate_foods(NewGameState);
+						false ->
+						    clock:set_tick(NewClock),
+						    NewGameState
+					    end,
+			    %%?LOG("Finished generating food~n",[]),
+			    Snakes1 = NewGameState1#game_state.snakes, 
+			    put(expected_events, [SnakeId || #snake{id=SnakeId} <- Snakes1]),
+			    game_loop(NewGameState1, NewReceivedMoveQueue);
+
 			MissingSnakes ->
 			    %% TODO: ask for it from other nodes or something involving a NACK
-			    ?LOG("DEBUG: Missing events from ~p~n", [MissingSnakes])
-%% 			    game_logic ! Tick ,
-%% 			    game_loop(GameState, ReceivedMoveQueue)
-		    end,
-		    %%?LOG("Advancing Clock~n",[]),
-		    MoveEvents = receive_all_events(),
-		    MoveMsg = {game_logic, {move, MyId, NewClock, MoveEvents}},
-
-		    %% always broadcast the events even if the movelist is empty
-		    message_passer:broadcast(MoveMsg),
-
-		    %% two possisble options so far: new food and new player positions.
-		    %% They are indexed in the options list by the atoms food and newpos
-			%% TODO Ask Osei: where is the new player position being indexed in the options list??
-		    NewGameState0 = process_options(GameState, Options),
-
-		    {NewGameState, NewReceivedMoveQueue} = advance_game(NewGameState0, ReceivedMoveQueue),
-		    %% We create new food here for use by the clock whenever it wants to use.
-
-		    NewGameState1 = case game_manager:is_leader() of
-					true ->
-					    food:generate_foods(NewGameState);
-					false ->
-					    clock:set_tick(NewClock),
-					    NewGameState
-				    end,
-		    %%?LOG("Finished generating food~n",[]),
-		    Snakes1 = NewGameState1#game_state.snakes, 
-		    put(expected_events, [SnakeId || #snake{id=SnakeId} <- Snakes1]),
-		    game_loop(NewGameState1, NewReceivedMoveQueue);
+			    ?LOG("DEBUG: Missing events from ~p~n", [MissingSnakes]),
+			    erlang:send_after(50, game_logic, Tick),
+ 			    game_loop(GameState, ReceivedMoveQueue)
+		    end;
 
 		_Any -> % ignore other 
 		    game_loop(GameState, ReceivedMoveQueue)
 	    end;
-	
 	{kill_snake, SnakeId} ->
-		%% kill snake => remove snake from all the data structures
-		Snakes = GameState#game_state.snakes,
-		NewSnakes = lists:keydelete(SnakeId, 1, Snakes),
-		NewReceivedMoveQueue = 	lists:keydelete(SnakeId, 1, ReceivedMoveQueue),
-		game_loop(GameState#game_state{snakes = NewSnakes}, NewReceivedMoveQueue) 
+	    %% kill snake => remove snake from all the data structures
+	    Snakes = GameState#game_state.snakes,
+	    NewSnakes = lists:keydelete(SnakeId, 1, Snakes),
+	    NewReceivedMoveQueue = 	lists:keydelete(SnakeId, 1, ReceivedMoveQueue),
+	    game_loop(GameState#game_state{snakes = NewSnakes}, NewReceivedMoveQueue) 
     end.
 
 %% this is called inside the game_loop because the expected_events atom is a key in its
