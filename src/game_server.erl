@@ -15,6 +15,8 @@ start() ->
     Port = get_server_port(),
     Pid = start_server(Port),
     register(game_server, Pid).
+	%% start the backup servers
+	primary_backup:start();
 
 stop() ->
     connect_msg_disconnect("localhost", get_server_port(), {stop}),
@@ -22,6 +24,8 @@ stop() ->
 
 reset() ->
     connect_msg_disconnect("localhost", get_server_port(), {reset}),
+	%% reset backup servers
+	primary_backup:reset();
     done.
 
 debug() ->
@@ -49,14 +53,12 @@ get_server_port() ->
 	    {Root, _Options} = filename:find_src(game_server),
 	    PathToConfigFile = filename:absname_join(filename:dirname(Root), "../resources/server-config.txt"),
 	    ?LOG("config file path: ~p~n", [PathToConfigFile]),
-	    {ok, [_ServerHost,ServerPort]} = file:consult(PathToConfigFile),
+	    {ok, [{_ServerHost,ServerPort}, {_BackupHost, _BackupPort}]} = file:consult(PathToConfigFile),
 	    put(server_port, ServerPort),
-	    ServerPort;
+		ServerPort;
 	ServerPort ->
 	    ServerPort
     end.
-
-
 
 server_loop(Listen, CommState) ->
     ?LOG("Waiting for connection on ~p~n",[Listen]),
@@ -93,6 +95,8 @@ process_connection(Socket, #comm_state{game_list = GameList, gameid = CurrentGam
 	    Data1 = binary_to_term(Data),
 	    ?LOG("Received tcp data~p~n", [Data1]),
 	    %% do something with received message
+		%% forward the message to the primary backup
+		forward_message_to_primary_backup(Data),
 	    case Data1 of
 		{get, game_list} ->
 		    GameIdList = [{GameId, Name, length(NodeList)} || {GameId, Name, NodeList} <- GameList],
@@ -187,14 +191,17 @@ process_connection(Socket, #comm_state{game_list = GameList, gameid = CurrentGam
     
 
 gs_client(Host, Port, Msg) ->
-    {ok, Socket} = gen_tcp:connect(Host, Port, [binary, {packet,0}]),
-    Bin = term_to_binary(Msg),
-    ?LOG("Sending msg ~p to server~n", [Msg]),
-    gen_tcp:send(Socket, Bin),
-    Data = client_loop(Socket),
-    Term = binary_to_term(Data),
-    ?LOG("Received ~p from server ~n", [Term]),
-    Term.
+    case gen_tcp:connect(Host, Port, [binary, {packet,0}]) of,
+    {ok, Socket} ->
+		Bin = term_to_binary(Msg),
+    	?LOG("Sending msg ~p to server~n", [Msg]),
+    	Data = client_loop(Socket),
+    	Term = binary_to_term(Data),
+    	?LOG("Received ~p from server ~n", [Term]),
+    	Term;
+	{error, Reason} ->
+		{error, message_resend}
+	end.
 
 client_loop(Socket) ->
     client_loop(Socket, []).
@@ -208,9 +215,27 @@ client_loop(Socket, DataList) ->
 	    list_to_binary(lists:reverse(DataList))
     end.
 	
-
 start_gs_interface () ->
     nothing.
+
+forward_message_to_backup_server(Msg) ->
+    {BackupHost, BackupPort} = get_backup_info(),
+    primary_backup:gs_client(BackupHost, BackupPort, Msg).
+
+get_backup_info() ->
+    case get(backup_info) of
+	undefined ->
+	    {Root, _Options} = filename:find_src(game_manager),
+	    PathToConfigFile = filename:absname_join(filename:dirname(Root), "../resources/server-config.txt"),
+	    ?LOG("config file path: ~p~n", [PathToConfigFile]),
+	    {ok, [{ServerHost,ServerPort}, {BackupHost, BackupPort}]} = file:consult(PathToConfigFile),
+	    BackupInfo = {BackupHost, BackupPort},
+	    put(backup_info, BackupInfo),
+	    BackupInfo;
+	BackupInfo ->
+	    BackupInfo
+    end.
+
 	
 %% test_module() ->
 %%     %% make sure server is fresh beforehand

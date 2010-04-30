@@ -1,5 +1,8 @@
-%% host name
-{192,168,3,4}.
+%% game_server
+%% host name, port
+{{192,168,3,4},9999}.
 
-%% port
-9999.
+%% primary_backup_1
+%% host name, port
+{{192,168,3,3},9999}.
+

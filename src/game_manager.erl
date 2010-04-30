@@ -158,20 +158,42 @@ remove_player_from_game_server(GameId, NodeId) ->
 
 send_message_to_game_server(Msg) ->
     {ServerHost, ServerPort} = get_server_info(),
-    game_server:gs_client(ServerHost, ServerPort, Msg).
-
+	{BackupHost, BackupPort} = get_backup_info(),
+    MessageStatus = game_server:gs_client(ServerHost, ServerPort, Msg),
+	case MessageStatus of 
+		Term ->
+			nothing;
+		{error, message_resend} ->
+			primary_backup:gs_client(BackupHost, BackupPort, Msg),
+			done
+	end.
+	
 get_server_info() ->
     case get(server_info) of
 	undefined ->
 	    {Root, _Options} = filename:find_src(game_manager),
 	    PathToConfigFile = filename:absname_join(filename:dirname(Root), "../resources/server-config.txt"),
 	    ?LOG("config file path: ~p~n", [PathToConfigFile]),
-	    {ok, [ServerHost,ServerPort]} = file:consult(PathToConfigFile),
+	    {ok, [{ServerHost,ServerPort}, {BackupHost, BackupPort}]} = file:consult(PathToConfigFile),
 	    ServerInfo = {ServerHost, ServerPort},
-	    put(server_info, ServerInfo),
+		put(server_info, ServerInfo),
 	    ServerInfo;
 	ServerInfo ->
 	    ServerInfo
+    end.
+
+get_backup_info() ->
+    case get(backup_info) of
+	undefined ->
+	    {Root, _Options} = filename:find_src(game_manager),
+	    PathToConfigFile = filename:absname_join(filename:dirname(Root), "../resources/server-config.txt"),
+	    ?LOG("config file path: ~p~n", [PathToConfigFile]),
+	    {ok, [{ServerHost,ServerPort}, {BackupHost, BackupPort}]} = file:consult(PathToConfigFile),
+	    BackupInfo = {BackupHost, BackupPort},
+	    put(backup_info, BackupInfo),
+	    BackupInfo;
+	BackupInfo ->
+	    BackupInfo
     end.
 
 add_player_to_game_info(NodeId) ->
