@@ -252,11 +252,18 @@ loop(ServerState) ->
 		{value, #host_info{nodeid=NodeId, pid=Pid, host=Host, port=Port}, NewRegisteredList} ->
 		    case Reason of
 			socketclosed ->
-			    ?LOG("Socket for ~p{~p:~p} closed~n", [NodeId, Host, Port]);
+			    ?LOG("Socket for ~p{~p:~p} closed~n", [NodeId, Host, Port]),;
 			_Any ->
 			    ?LOG("Some other reason for exiting (~p)~n", [Reason]),
 			    nothing
 		    end,
+
+		    %% this takes care of message passer
+		    message_passer ! {kill_node, NodeId},
+
+		    %% this takes care of game_logic
+		    game_logic ! {kill_snake, NodeId},
+		    game_manager:remove_from_game_info(NodeId),
 		    loop(ServerState#server_state{registered_list = NewRegisteredList});
 		false ->
 		    loop(ServerState)
