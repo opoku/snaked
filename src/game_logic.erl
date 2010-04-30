@@ -336,9 +336,10 @@ get_missing_snakes(SnakeList) ->
 	[] ->
 	    [];
 	ExpectedEvents ->
-	    lists:filter(fun (#snake{id=SnakeId,position=Pos}) ->
+	    SnakeList1 = lists:filter(fun (#snake{id=SnakeId,position=Pos}) ->
 				 lists:member(SnakeId, ExpectedEvents) and not(queue:is_empty(Pos))
-			 end, SnakeList)
+			 end, SnakeList),
+	    [SnakeId || #snake{id=SnakeId} <- SnakeList1 ]
     end.
 
 generate_new_snake_position(SnakeId, NumNewPlayers, {GridX, GridY}) ->
