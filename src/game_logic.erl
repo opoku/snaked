@@ -167,7 +167,7 @@ game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
 			    %% keep all events that are for the current clock and after
 			    Events = [Event || {move, _, EventClock1, _} = Event <- lists:reverse(erase(events)), EventClock1 >= Clock ],
 
-			    lists:foreach(fun(M) -> self() ! M end, Ticks ++ Events),
+			    lists:foreach(fun(M) -> self() ! M end, Events ++ Ticks ),
 
 			    %% clears the last element in process dictionary
 			    erase(unseen_nodes),
@@ -242,6 +242,41 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    game_manager:send_to_mp(HandlerId, {player_added, NodeId, MyId}),
 
 	    game_loop(GameState#game_state{snakes=Snakes1}, NewReceivedMoveQueue);
+	%% this will only match those events that are for the current clock
+	{move, SnakeId, Clock, []} ->
+	    ?LOG("move, empty move list~n",[]),
+	    %% an empty movelist should be ignored
+	    put(expected_events, get(expected_events) -- [SnakeId]),
+	    game_loop(GameState, ReceivedMoveQueue);
+	{move, SnakeId, Clock, MoveList} -> 
+	    ?LOG("move, movelist--> ~p~n", [MoveList]),
+	    %% put this move into the queue for snakeid
+	    ?LOG("Snake ~p Move event received: ~p~n", [SnakeId, MoveList]),
+	    put(expected_events, get(expected_events) -- [SnakeId]),
+	    Snakes = GameState#game_state.snakes,
+	    case {game_manager:is_leader(), lists:keyfind(SnakeId, #snake.id, Snakes)} of
+		{true, #snake{length=0}} ->
+		    %% zero length snake and i am the leader
+		    NewSnakePosList = GameState#game_state.new_player_positions,
+						GridSize = GameState#game_state.size,
+		    NewSnakePosList1 = [generate_new_snake_position(SnakeId, length(NewSnakePosList), GridSize) | NewSnakePosList],
+		    game_loop(GameState#game_state{new_player_positions=NewSnakePosList1}, ReceivedMoveQueue);
+		{false, #snake{length=0}} ->
+		    %% ignore this move
+		    game_loop(GameState, ReceivedMoveQueue);
+		{_, #snake{length=L}} when L > 0 ->
+		    %% do nothing
+		    {SnakeId, Queue} = lists:keyfind(SnakeId, 1, ReceivedMoveQueue),
+		    %% attach the clock value to the move when inserting in queue
+		    NewQueue = process_move_list([{Clock,Move} || Move <- MoveList], Queue),
+		    NewReceivedMoveQueue = lists:keystore(SnakeId, 1, ReceivedMoveQueue, {SnakeId, NewQueue}),
+		    game_loop(GameState, NewReceivedMoveQueue);
+		{_, false} ->
+		    %% shouldnt happen
+		    ?LOG("Error: received a move event from an unregistered snake ~p~n", [SnakeId]),
+		    %% do nothing
+		    game_loop(GameState, ReceivedMoveQueue)
+	    end;
 	{tick, NewClock, Options} = _Tick ->
 	    ?LOG("Received tick for clock ~p old Clock ~p~n", [NewClock, Clock]),
 	    case Clock + 1 =:= NewClock of
@@ -288,41 +323,6 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		    game_loop(GameState, ReceivedMoveQueue)
 	    end;
 	
-	%% this will only match those events that are for the current clock
-	{move, SnakeId, Clock, []} ->
-	    ?LOG("move, empty move list~n",[]),
-	    %% an empty movelist should be ignored
-	    put(expected_events, get(expected_events) -- [SnakeId]),
-	    game_loop(GameState, ReceivedMoveQueue);
-	{move, SnakeId, Clock, MoveList} -> 
-	    ?LOG("move, movelist--> ~p~n", [MoveList]),
-	    %% put this move into the queue for snakeid
-	    ?LOG("Snake ~p Move event received: ~p~n", [SnakeId, MoveList]),
-	    put(expected_events, get(expected_events) -- [SnakeId]),
-	    Snakes = GameState#game_state.snakes,
-	    case {game_manager:is_leader(), lists:keyfind(SnakeId, #snake.id, Snakes)} of
-		{true, #snake{length=0}} ->
-		    %% zero length snake and i am the leader
-		    NewSnakePosList = GameState#game_state.new_player_positions,
-						GridSize = GameState#game_state.size,
-		    NewSnakePosList1 = [generate_new_snake_position(SnakeId, length(NewSnakePosList), GridSize) | NewSnakePosList],
-		    game_loop(GameState#game_state{new_player_positions=NewSnakePosList1}, ReceivedMoveQueue);
-		{false, #snake{length=0}} ->
-		    %% ignore this move
-		    game_loop(GameState, ReceivedMoveQueue);
-		{_, #snake{length=L}} when L > 0 ->
-		    %% do nothing
-		    {SnakeId, Queue} = lists:keyfind(SnakeId, 1, ReceivedMoveQueue),
-		    %% attach the clock value to the move when inserting in queue
-		    NewQueue = process_move_list([{Clock,Move} || Move <- MoveList], Queue),
-		    NewReceivedMoveQueue = lists:keystore(SnakeId, 1, ReceivedMoveQueue, {SnakeId, NewQueue}),
-		    game_loop(GameState, NewReceivedMoveQueue);
-		{_, false} ->
-		    %% shouldnt happen
-		    ?LOG("Error: received a move event from an unregistered snake ~p~n", [SnakeId]),
-		    %% do nothing
-		    game_loop(GameState, ReceivedMoveQueue)
-	    end;
 	{kill_snake, SnakeId} ->
 		%% kill snake => remove snake from all the data structures
 		Snakes = GameState#game_state.snakes,
