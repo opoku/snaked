@@ -146,6 +146,7 @@ add_player_to_game_server(GameId, NodeId) ->
     end.
 
 remove_player_from_game_server(GameId, NodeId) ->
+    ?LOG("Removing player ~p from game server", [NodeId]),
     HostInfo = message_passer:get_host_info(NodeId),
     case send_message_to_game_server({set, remove_player, {GameId, HostInfo}}) of
 	{ok, player_removed} ->

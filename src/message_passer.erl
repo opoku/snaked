@@ -614,13 +614,11 @@ loop(ServerState) ->
 
 delete_node_from_lockedstatelist(Elem,NodeId) ->
     {ResourceId, LockState, RequestQueue, ReplyList, ReqPid} = Elem,
-    NewReplyList = lists:delete(NodeId, 2,ReplyList),
+    NewReplyList = lists:keydelete(NodeId, 2,ReplyList),
     RequestList = queue:to_list(RequestQueue),
     NewRequestList = lists:dropwhile(_Pred = fun({_,HostId,_,_}) -> HostId =:= NodeId end,RequestList),
     NewRequestQueue = queue:from_list(NewRequestList),
-    NewElem = {ResourceId, LockState, NewRequestQueue, NewReplyList, ReqPid},
-    NewElem.
-    
+    {ResourceId, LockState, NewRequestQueue, NewReplyList, ReqPid}.
 
 reload_message_passer() ->
     code:load_file(message_passer),
