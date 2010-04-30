@@ -349,7 +349,11 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 			    %% kill this missing node
 			    ?LOG("Killing the stupid snakes ~p~n", [MissingSnakes]),
 			    erase({tick, Clock}),
-			    lists:foreach(fun(SnakeId) -> self() ! {kill_snake, SnakeId} end, MissingSnakes);
+			    lists:foreach(fun(SnakeId) ->
+						  self() ! {kill_snake, SnakeId},
+						  game_manager:remove_from_game_info(SnakeId),
+						  message_passer:disconnect_from_nodeid(SnakeId)
+					     end, MissingSnakes);
 			N ->
 			    put({tick, Clock}, N-1)
 		    end,
