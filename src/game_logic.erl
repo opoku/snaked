@@ -257,6 +257,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 %% 			    game_logic ! Tick ,
 %% 			    game_loop(GameState, ReceivedMoveQueue)
 		    end,
+		    clock:set_tick(NewClock),
 
 		    %%?LOG("Advancing Clock~n",[]),
 		    MoveEvents = receive_all_events(),

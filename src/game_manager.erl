@@ -349,8 +349,6 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	{make_leader, MyNodeId} ->
 	    %% If the nodeid is mine then make myself the leader
 	    ?LOG("I have been made the leader~n",[]),
-	    #game_state{clock=Tick} = game_logic:get_game_state(),
-	    clock:set_tick(Tick),
 	    game_manager_loop(ManagerState#manager_state{leader=true});
 	{make_leader, OtherNodeId} ->
 	    %% if the nodeid is not mine then make sure that I'm not the leader
