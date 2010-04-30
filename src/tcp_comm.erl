@@ -16,7 +16,10 @@ start_client(Host, Port) ->
     spawn(tcp_comm, client_start, [Host, Port]).
 
 client_connect(Host, Port) ->
-    case gen_tcp:connect(Host, Port, [binary, {packet, 4}]) of
+    case gen_tcp:connect(Host, Port, [binary,
+				      {packet, 4},
+				      {send_timeout, 3000},
+				      {send_timeout_close, true}]) of
 	{ok, Socket}-> Socket;
 	{error, Reason}->?LOG("Error on connect Socket ~p. Trying again~n", [Reason]), 
 			 client_connect(Host, Port)
@@ -38,7 +41,9 @@ start_server(Port) ->
     {ok, Listen} = gen_tcp:listen(Port, [binary,
 					 {packet,4},
 					 {reuseaddr, true},
-					 {active, true}]),
+					 {active, true},
+					 {send_timeout, 3000},
+					 {send_timeout_close, true}]),
     spawn(tcp_comm, par_connect, [Port, Listen]).
 
 par_connect(Port, Listen) ->
