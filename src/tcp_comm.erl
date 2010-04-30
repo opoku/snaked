@@ -95,7 +95,7 @@ comm_loop(#comm_state{socket=Socket, myseqno=SeqNo} = CommState) ->
 	{tcp_closed, Socket} ->
 	    %% this may be an error.  should we try to reconnect or just tell message
 	    %% passer that we are going to die?
-	    ?LOG("Socket ~p closed~n", [Socket]),
+	    ?LOG("Socket ~p closed: ~p~n", [Socket, inet:peername(Socket)]),
 	    %% this exit tells message passer that we are dying.  message passer will handle the rest
 	    exit(socketclosed);
 	{send, Pid, Data} ->
@@ -106,6 +106,7 @@ comm_loop(#comm_state{socket=Socket, myseqno=SeqNo} = CommState) ->
 	    comm_loop(CommState#comm_state{myseqno=SeqNo+1});
 	{disconnect} ->
 	    %% close socket and finish loopp
+	    ?LOG("closing socket ~p~n", [Socket]),
 	    gen_tcp:close(Socket);
 	{getip, Pid} ->
 	    case inet:peername(Socket) of
