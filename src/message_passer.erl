@@ -572,16 +572,25 @@ loop(ServerState) ->
 	{reset_server, _Pid} ->
 	    self() ! {kill_comm},
 	    loop(ServerState#server_state{acklist = [], hold_queue = []});
-	{kill_node, NodeId} -> #server_state{myid=_Me, timestamp=_MyTimeStamp, acklist=PrevAckList, registered_list = RegisteredList,lock_state_list = LockStateList,hold_queue = HoldQueue ,msg_tracker = MessageTrackingList} = ServerState,
+	{kill_node, NodeId} ->
+	    #server_state{myid=_Me, timestamp=_MyTimeStamp,
+			  acklist=PrevAckList,
+			  registered_list = RegisteredList,
+			  lock_state_list = LockStateList,
+			  hold_queue = HoldQueue ,
+			  msg_tracker = MessageTrackingList} = ServerState,
 	    %% when a node dies, this message is received
 	    %% this updates the data structures of the message passer
-	    NewAckList = lists:dropwhile(_PredAck = fun({ack,AckListNodeId,_,_})-> AckListNodeId =:= NodeId end, PrevAckList),
-	    NewRegisteredList = lists:dropwhile(_PredRegList = fun({RegisteredListNodeId,_,_,_})-> RegisteredListNodeId =:= NodeId end, RegisteredList),
-	    LockStateList = ServerState#server_state.lock_state_list,
+
+	    NewAckList = lists:keydelete(NodeId, 2, PrevAckList),
+	    NewRegisteredList = lists:keydelete(NodeId, #host_info.nodeid, RegisteredList),
+
 	    NewLockStateList = lists:map(fun(Elem)-> delete_node_from_lockedstatelist(Elem,NodeId)end, LockStateList),
-	    NewMessageTrackingList = lists:delete(NodeId, 1, MessageTrackingList),
-	    NewHoldQueue = lists:dropwhile(_PredHoldqueue = fun({_,HostId,_,_,_}) -> HostId =:= NodeId end, HoldQueue), 
-	    loop(ServerState#server_state{acklist=NewAckList, registered_list = NewRegisteredList, lock_state_list = NewLockStateList,hold_queue = NewHoldQueue,msg_tracker = NewMessageTrackingList});			
+	    NewMessageTrackingList = lists:keydelete(NodeId, 1, MessageTrackingList),
+	    NewHoldQueue = lists:keydelete(NodeId, 2, HoldQueue),
+	    loop(ServerState#server_state{acklist=NewAckList, registered_list = NewRegisteredList,
+					  lock_state_list = NewLockStateList,hold_queue = NewHoldQueue,
+					  msg_tracker = NewMessageTrackingList});			
 	{make_player, NodeId} ->
 	    RegisteredList = ServerState#server_state.registered_list,
 	    NewRegisteredList = case lists:keyfind(NodeId, #host_info.nodeid, RegisteredList) of
