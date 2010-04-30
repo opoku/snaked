@@ -368,7 +368,6 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    case lists:keytake(NodeId, #host_info.id, NodeList) of
 		{value, #host_info{priority=NodePriority}, RestOfNodeList} ->
 		    %% this function will update the other node priorities accordingly
-		    
 		    Rest1 = update_node_list(NodePriority, RestOfNodeList),
 		    case {NodePriority, Rest1} of
 			{1, []} ->
@@ -379,15 +378,16 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 			    %% someone else must now be one
 			    ?LOG("We have a new leader.  new NodeList: ~p~n", [Rest1]),
 			    #host_info{id=NewLeaderId} = lists:keyfind(1, #host_info.priority, Rest1),
-			    case NewLeaderId of
-				MyNodeId ->
-				    spawn(fun () -> remove_player_from_game_server(GameId, NodeId) end);
-				_Other ->
-				    nothing
-			    end,
 			    game_manager ! {make_leader, NewLeaderId};
-			_Other ->
+			_Other1 ->
 			    ?LOG("No new leader.  new NodeList: ~p~n", [Rest1])
+		    end,
+		    case lists:keyfind(MyNodeId, #host_info.id, Rest1) of
+			#host_info{priority=1} ->
+			    %% i am leader so 
+			    spawn(fun () -> remove_player_from_game_server(GameId, NodeId) end);
+			_Other ->
+			    nothing
 		    end,
 		    NewGameInfo = {GameId, Name, Rest1},
 		    Pid ! {game_manager, removed_from_game_info, NodeId},
