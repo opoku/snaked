@@ -230,11 +230,13 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    Snakes1 = [#snake{id=NodeId} |Snakes],
 	    NewReceivedMoveQueue = [{NodeId, queue:new()} | ReceivedMoveQueue],
 
-	    %% make the new node a player
-	    message_passer:make_player(NodeId),
-	    
-	    %% tell game manager to add the player info to the gameinfo
-	    game_manager:add_player_to_game_info(NodeId),
+	    spawn(fun () ->
+			  %% make the new node a player
+			  message_passer:make_player(NodeId),
+			  
+			  %% tell game manager to add the player info to the gameinfo
+			  game_manager:add_player_to_game_info(NodeId)
+		  end),
 
 	    %% send back an ack after adding the player to the handler
 	    game_manager:send_to_mp(HandlerId, {player_added, NodeId, MyId}),
@@ -326,7 +328,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		Snakes = GameState#game_state.snakes,
 		NewSnakes = lists:keydelete(SnakeId, 1, Snakes),
 		NewReceivedMoveQueue = 	lists:keydelete(SnakeId, 1, ReceivedMoveQueue),
-		game_loop(GameState#game_state{snakes = NewSnakes}, NewReceivedMoveQueue)	
+		game_loop(GameState#game_state{snakes = NewSnakes}, NewReceivedMoveQueue) 
     end.
 
 %% this is called inside the game_loop because the expected_events atom is a key in its

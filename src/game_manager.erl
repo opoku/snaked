@@ -288,9 +288,11 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    end;
 	{joined, NodeId} ->
 	    ?LOG("Received joinED from ~p~n", [NodeId]),
-	    GameState = game_logic:get_game_state(),
 	    GameInfo = ManagerState#manager_state.game_info,
-	    send_to_mp(NodeId, {game_state, GameState, GameInfo}),
+	    spawn(fun () ->
+			  GameState = game_logic:get_game_state(),
+			  send_to_mp(NodeId, {game_state, GameState, GameInfo})
+		  end),
 	    %%release lock
 	    game_manager_loop(ManagerState);
 	{add_player, NodeId} ->
@@ -337,7 +339,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 		    
 		    %% add the player to the game server
 		    {GameId,_,_} = ManagerState#manager_state.game_info,
-		    add_player_to_game_server(GameId, NodeId),
+		    spawn(fun () -> add_player_to_game_server(GameId, NodeId) end),
 		    game_manager_loop(ManagerState);
 		_Any ->
 		    put({NodeId, addplayer}, IdList1),
@@ -366,7 +368,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    case lists:keytake(NodeId, #host_info.id, NodeList) of
 		{value, #host_info{priority=NodePriority}, RestOfNodeList} ->
 		    %% this function will update the other node priorities accordingly
-		    remove_player_from_game_server(GameId, NodeId),
+		    spawn(fun () -> remove_player_from_game_server(GameId, NodeId) end),
 		    Rest1 = update_node_list(NodePriority, RestOfNodeList),
 		    case {NodePriority, Rest1} of
 			{1, []} ->
