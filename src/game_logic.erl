@@ -257,8 +257,6 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 %% 			    game_logic ! Tick ,
 %% 			    game_loop(GameState, ReceivedMoveQueue)
 		    end,
-		    clock:set_tick(NewClock),
-
 		    %%?LOG("Advancing Clock~n",[]),
 		    MoveEvents = receive_all_events(),
 		    MoveMsg = {game_logic, {move, MyId, NewClock, MoveEvents}},
@@ -278,6 +276,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 					true ->
 					    food:generate_foods(NewGameState);
 					false ->
+					    clock:set_tick(NewClock),
 					    NewGameState
 				    end,
 		    %%?LOG("Finished generating food~n",[]),
