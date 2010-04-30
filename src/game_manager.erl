@@ -340,7 +340,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 		    
 		    %% add the player to the game server
 		    {GameId,_,_} = ManagerState#manager_state.game_info,
-		    spawn(fun () -> add_player_to_game_server(GameId, NodeId) end),
+		    add_player_to_game_server(GameId, NodeId),
 		    game_manager_loop(ManagerState);
 		_Any ->
 		    put({NodeId, addplayer}, IdList1),
@@ -369,7 +369,7 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    case lists:keytake(NodeId, #host_info.id, NodeList) of
 		{value, #host_info{priority=NodePriority}, RestOfNodeList} ->
 		    %% this function will update the other node priorities accordingly
-		    spawn(fun () -> remove_player_from_game_server(GameId, NodeId) end),
+		    remove_player_from_game_server(GameId, NodeId),
 		    Rest1 = update_node_list(NodePriority, RestOfNodeList),
 		    case {NodePriority, Rest1} of
 			{1, []} ->

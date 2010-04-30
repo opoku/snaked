@@ -258,12 +258,13 @@ loop(ServerState) ->
 			    nothing
 		    end,
 
-		    %% this takes care of message passer
-		    message_passer ! {kill_node, NodeId},
 
 		    %% this takes care of game_logic
 		    game_logic ! {kill_snake, NodeId},
 		    game_manager:remove_from_game_info(NodeId),
+
+		    %% this takes care of message passer
+		    message_passer ! {kill_node, NodeId},
 		    loop(ServerState#server_state{registered_list = NewRegisteredList});
 		false ->
 		    loop(ServerState)
