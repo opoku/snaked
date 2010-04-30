@@ -190,6 +190,7 @@ game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
 
 game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
     #game_state{clock=Clock, myid = MyId} = GameState,
+    NewClock = Clock + 1,
     %%?LOG("DEBUG: started game loop ~p~n", [Clock]),
     receive
 	{'EXIT', Pid, Reason} ->
@@ -279,47 +280,62 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    end;
 	{tick, NewClock, Options} = Tick ->
 	    ?LOG("Received tick for clock ~p old Clock ~p~n", [NewClock, Clock]),
-	    case Clock + 1 =:= NewClock of
-		true ->
-		    Snakes = GameState#game_state.snakes,
-		    case get_missing_snakes(Snakes) of
-			[] ->
-			    %% ok
-			    %%?LOG("Advancing Clock~n",[]),
-			    MoveEvents = receive_all_events(),
-			    MoveMsg = {game_logic, {move, MyId, NewClock, MoveEvents}},
+	    Snakes = GameState#game_state.snakes,
+	    case get_missing_snakes(Snakes) of
+		[] ->
+		    %% ok
+		    %%?LOG("Advancing Clock~n",[]),
+		    MoveEvents = receive_all_events(),
+		    MoveMsg = {game_logic, {move, MyId, NewClock, MoveEvents}},
 
-			    %% always broadcast the events even if the movelist is empty
-			    message_passer:broadcast(MoveMsg),
+		    %% always broadcast the events even if the movelist is empty
+		    message_passer:broadcast(MoveMsg),
 
-			    %% two possisble options so far: new food and new player positions.
-			    %% They are indexed in the options list by the atoms food and newpos
-			    %% TODO Ask Osei: where is the new player position being indexed in the options list??
-			    NewGameState0 = process_options(GameState, Options),
+		    %% two possisble options so far: new food and new player positions.
+		    %% They are indexed in the options list by the atoms food and newpos
+		    %% TODO Ask Osei: where is the new player position being indexed in the options list??
+		    NewGameState0 = process_options(GameState, Options),
 
-			    {NewGameState, NewReceivedMoveQueue} = advance_game(NewGameState0, ReceivedMoveQueue),
-			    %% We create new food here for use by the clock whenever it wants to use.
+		    {NewGameState, NewReceivedMoveQueue} = advance_game(NewGameState0, ReceivedMoveQueue),
+		    %% We create new food here for use by the clock whenever it wants to use.
 
-			    NewGameState1 = case game_manager:is_leader() of
-						true ->
-						    food:generate_foods(NewGameState);
-						false ->
-						    clock:set_tick(NewClock),
-						    NewGameState
-					    end,
-			    %%?LOG("Finished generating food~n",[]),
-			    Snakes1 = NewGameState1#game_state.snakes, 
-			    put(expected_events, [SnakeId || #snake{id=SnakeId} <- Snakes1]),
-			    game_loop(NewGameState1, NewReceivedMoveQueue);
+		    IsLeader = game_manager:is_leader(),
+		    case {IsLeader, get(clock_paused)} of
+			{true, true} ->
+			    erase(clock_paused),
+			    clock:resume();
+			{_, undefined} ->
+			    nothing
+		    end,
+		    NewGameState1 = case IsLeader of
+					true ->
+					    food:generate_foods(NewGameState);
+					false ->
+					    clock:set_tick(NewClock),
+					    NewGameState
+				    end,
+		    %%?LOG("Finished generating food~n",[]),
+		    Snakes1 = NewGameState1#game_state.snakes, 
+		    put(expected_events, [SnakeId || #snake{id=SnakeId} <- Snakes1]),
+		    game_loop(NewGameState1, NewReceivedMoveQueue);
 
-			MissingSnakes ->
-			    %% TODO: ask for it from other nodes or something involving a NACK
-			    ?LOG("DEBUG: Missing events from ~p~n", [MissingSnakes]),
-			    erlang:send_after(50, game_logic, Tick),
- 			    game_loop(GameState, ReceivedMoveQueue)
-		    end;
-
-		_Any -> % ignore other 
+		MissingSnakes ->
+		    %% TODO: ask for it from other nodes or something involving a NACK
+		    ?LOG("DEBUG: Missing events from ~p~n", [MissingSnakes]),
+		    case game_manager:is_leader() of
+			true ->
+			    %% pause clock
+			    case get(clock_paused) of
+				undefined ->
+				    put(clock_paused,true),
+				    clock:pause();
+				true ->
+				    nothing
+			    end;
+			false ->
+			    nothing
+		    end,
+		    erlang:send_after(50, game_logic, Tick),
 		    game_loop(GameState, ReceivedMoveQueue)
 	    end;
 	{kill_snake, SnakeId} ->

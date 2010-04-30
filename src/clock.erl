@@ -7,14 +7,15 @@
 %%%-------------------------------------------------------------------
 -module(clock).
 
--export([start/0,start/1,init/1,stop/0,set_tick/1]).
+-export([start/0,start/1,init/1,stop/0,set_tick/1,pause/0,resume/0,resume/1]).
 -include("common.hrl").
 -include("game_state.hrl").
 
+-define(CLOCK_TIME, 200).
 -define(FOOD_GENERATION_INTERVAL, 10).
 
 start() ->
-    start(200).
+    start(?CLOCK_TIME).
 
 start(TimeOut) ->
     spawn(clock, init, [TimeOut]).
@@ -42,6 +43,16 @@ get_new_foods(Tick) ->
 	_ -> []
     end.
 
+pause() ->
+    game_clock ! {pause},
+    ok.
+
+resume() ->
+    resume(?CLOCK_TIME).
+resume(TimeOut) ->
+    game_clock ! {resume, TimeOut},
+    ok.
+
 get_new_player_positions() ->
     NewPos = game_logic:get_new_player_position(),
     %%?LOG("DEBUG: in get_new_player_positions, before return NewPos -->~n ~p~n", [NewPos]),
@@ -60,7 +71,11 @@ loop(Time, Tick) ->
 	    game_manager:broadcast_tick(Tick),
 	    loop(Time, Tick+1);
 	{set_tick, T} ->
-	    loop(Time, T)
+	    loop(Time, T);
+	{pause} ->
+	    loop(infinity, Tick);
+	{resume, TimeOut} ->
+	    loop(TimeOut, Tick)
     after
 	Time ->
 	    case game_manager:is_leader() of
