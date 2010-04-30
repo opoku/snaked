@@ -15,8 +15,10 @@ start() ->
     Port = get_server_port(),
     Pid = start_server(Port),
     register(game_server, Pid).
-	%% start the backup servers
-	primary_backup:start();
+	%% start the backup servers ..connnect to the backup server
+	%%primary_backup:start();
+	{BackupHost, BackupPort} = get_backup_info(),
+	{ok, Socket} = gen_tcp:connect(BackupHost, BackupPort, [binary, {packet,0}]);	
 
 stop() ->
     connect_msg_disconnect("localhost", get_server_port(), {stop}),
@@ -25,11 +27,13 @@ stop() ->
 reset() ->
     connect_msg_disconnect("localhost", get_server_port(), {reset}),
 	%% reset backup servers
-	primary_backup:reset();
+	{BackupHost, BackupPort} = get_backup_info(),
+	connect_backup_disconnect(BackupHost, BackupPort, {reset}),
     done.
 
 debug() ->
     connect_msg_disconnect("localhost", get_server_port(), {debug, self()}),
+	%% debug backup servers
     receive
 	{game_server_debug, Result} ->
 	    Result
@@ -38,6 +42,11 @@ debug() ->
 connect_msg_disconnect(Host, Port, Msg) ->
     {ok, Socket} = gen_tcp:connect(Host, Port, [binary, {packet,0}]),
     game_server ! Msg,
+    gen_tcp:close(Socket).
+
+connect_backup_disconnect(Host, Port, Msg) ->
+    {ok, Socket} = gen_tcp:connect(Host, Port, [binary, {packet,0}]),
+    gen_tcp:send(Msg),
     gen_tcp:close(Socket).
 
 start_server(Port) ->
