@@ -25,10 +25,20 @@ client_connect(Host, Port) ->
 			 client_connect(Host, Port)
     end.	
 
-client_start({127,0,0,1}, Port) ->
+client_start({127,0,0,1}=Host, Port) ->
     message_passer ! {comm_started, self()},
-    send_node_id(),
-    self_comm_loop(Port);
+    case whereis(self_node) of
+	undefined ->
+	    register(self_node, self()),
+	    send_node_id(),
+	    self_comm_loop(Port);
+	_Pid ->
+	    Socket = client_connect(Host, Port),		
+	    %% send your node id to the server
+	    send_node_id(),
+	    comm_loop(#comm_state{socket=Socket})
+    end;
+
 
 client_start(Host, Port) ->
     message_passer ! {comm_started, self()},

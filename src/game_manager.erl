@@ -55,7 +55,7 @@ init(MyNodeId, DefaultPort) ->
 	fail -> 
 	    %%If you can't join the game, you start a new game and become a leader.
 	    {GameId, _Name, NodeList} = GameInfo = create_new_game("DefaultName"),
-	    spawn(game_manager, game_monitor, [GameId, MyNodeId, DefaultPort]),
+	    spawn(game_manager, game_monitor, [GameId, MyNodeId]),
 
 	    clock:start(),
 	    game_logic:start(MyNodeId, [NodeId || #host_info{id=NodeId} <- NodeList]),
