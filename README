@@ -1,0 +1,5 @@
+This is an implementation of snake for a distributed systems class.
+
+It is written in Erlang so it uses all the fancy concurrency capabilities.
+It also barely works.
+
