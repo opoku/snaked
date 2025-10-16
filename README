@@ -1,5 +1,15 @@
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+# Snaked
+
 This is an implementation of snake for a distributed systems class.
 
 It is written in Erlang so it uses all the fancy concurrency capabilities.
 It also barely works.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+Copyright (c) 2025 Snaked Contributors
 
