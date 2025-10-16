@@ -35,6 +35,9 @@ game_monitor(GameId, NodeId) ->
     end.
 
 init(MyNodeId, DefaultPort) ->
+    %% Initialize logger on game manager startup
+    logger_config:init(info),
+    ?LOG_INFO("Initializing game manager", #{node_id => MyNodeId, port => DefaultPort}),
     put(id, MyNodeId),
     put(defaultport, DefaultPort),
     %%DefaultPort = 5555,
@@ -47,6 +50,7 @@ init(MyNodeId, DefaultPort) ->
     case join_game() of 
 	{ok, {GameId, _, _} = GameInfo, GameState} ->
 	    %%If you joined a game, you will receive the game state from the current game.
+	    ?LOG_INFO("Successfully joined existing game", #{game_id => GameId, node_id => MyNodeId}),
 	    spawn(game_manager, game_monitor, [GameId, MyNodeId]),
 	    game_logic:update_game_state(GameState),
 	    clock:start(),
@@ -54,6 +58,7 @@ init(MyNodeId, DefaultPort) ->
 
 	fail -> 
 	    %%If you can't join the game, you start a new game and become a leader.
+	    ?LOG_INFO("No games available, creating new game as leader", #{node_id => MyNodeId}),
 	    {GameId, _Name, NodeList} = GameInfo = create_new_game("DefaultName"),
 	    spawn(game_manager, game_monitor, [GameId, MyNodeId]),
 
@@ -62,13 +67,16 @@ init(MyNodeId, DefaultPort) ->
 	    game_logic:start_game(),
 
 	    ?LOG("Starting the game manager loop~n",[]),
+	    ?LOG_INFO("Game manager loop started as leader", #{game_id => GameId}),
 	    game_manager_loop(#manager_state{nodeid=MyNodeId, game_info=GameInfo, leader=true})
     end.
 
 create_new_game(Name) ->
     ?LOG("Creating a new game ~p~n", [Name]),
     MyNodeId = get(id),
+    ?LOG_INFO("Creating new game", #{game_name => Name, creator => MyNodeId}),
     {gameid, GameId} = send_message_to_game_server({set, add_game, Name}),
+    ?LOG_INFO("Game created on server", #{game_id => GameId, game_name => Name}),
     add_player_to_game_server(GameId, MyNodeId),
     message_passer:make_player(MyNodeId),
     {GameId, Name, [#host_info{id=MyNodeId, priority=1}]}.
@@ -140,18 +148,23 @@ add_player_to_game_server(GameId, NodeId) ->
     HostInfo = message_passer:get_host_info(NodeId),
     case send_message_to_game_server({set, add_player, {GameId, HostInfo}}) of
 	{ok, player_added} ->
-	    ?LOG("Adding player to game server succeeded~n",[]);
+	    ?LOG("Adding player to game server succeeded~n",[]),
+	    ?LOG_INFO("Player added to game server", #{game_id => GameId, player_id => NodeId});
 	{error, Reason} ->
-	    ?LOG("Add player failed ~p~n", [Reason])
+	    ?LOG("Add player failed ~p~n", [Reason]),
+	    ?LOG_ERROR("Failed to add player to game server", #{game_id => GameId, player_id => NodeId, reason => Reason})
     end.
 
 remove_player_from_game_server(GameId, NodeId) ->
     ?LOG("Removing player ~p from game server", [NodeId]),
+    ?LOG_INFO("Removing player from game server", #{game_id => GameId, player_id => NodeId}),
     case send_message_to_game_server({set, remove_player, {GameId, NodeId}}) of
 	{ok, player_removed} ->
-	    ?LOG("Removed player from game server succeeded~n",[]);
+	    ?LOG("Removed player from game server succeeded~n",[]),
+	    ?LOG_INFO("Player removed from game server successfully", #{game_id => GameId, player_id => NodeId});
 	{error, Reason} ->
-	    ?LOG("Remove player failed ~p~n", [Reason])
+	    ?LOG("Remove player failed ~p~n", [Reason]),
+	    ?LOG_ERROR("Failed to remove player from game server", #{game_id => GameId, player_id => NodeId, reason => Reason})
     end.
 
 
@@ -190,6 +203,7 @@ stop() ->
 
 try_to_add_new_player(NodeId) ->
     PlayerCount = game_logic:count_players(),
+    ?LOG_INFO("Attempting to add new player", #{player_id => NodeId, current_player_count => PlayerCount, max_players => ?MAX_PLAYERS}),
     case PlayerCount < ?MAX_PLAYERS of
 	true ->
 	    %% send a message telling the new player that he is being added so that he
@@ -202,12 +216,15 @@ try_to_add_new_player(NodeId) ->
 	    game_manager ! {add_player, NodeId},
 	    receive
 		{player_added, NodeId} ->
-		    ?LOG("Player ~p has been added so release the lock ~n", [NodeId]);
+		    ?LOG("Player ~p has been added so release the lock ~n", [NodeId]),
+		    ?LOG_INFO("Player successfully added to game", #{player_id => NodeId, new_player_count => PlayerCount + 1});
 		{error, Reason} ->
-		    ?LOG("Failed to add player: ~p~n", [Reason])
+		    ?LOG("Failed to add player: ~p~n", [Reason]),
+		    ?LOG_ERROR("Failed to add player to game", #{player_id => NodeId, reason => Reason})
 	    end;
 	false ->
 	    %% cannot add player
+	    ?LOG_WARNING("Cannot add player: game is full", #{player_id => NodeId, max_players => ?MAX_PLAYERS}),
 	    send_to_mp(NodeId, {error, game_full})
     end.
 
@@ -351,10 +368,12 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	{make_leader, MyNodeId} ->
 	    %% If the nodeid is mine then make myself the leader
 	    ?LOG("I have been made the leader~n",[]),
+	    ?LOG_INFO("Node promoted to leader", #{node_id => MyNodeId}),
 	    game_manager_loop(ManagerState#manager_state{leader=true});
 	{make_leader, OtherNodeId} ->
 	    %% if the nodeid is not mine then make sure that I'm not the leader
 	    ?LOG("I am making someone else ~p a leader~n",[OtherNodeId]),
+	    ?LOG_INFO("Leader changed to another node", #{new_leader => OtherNodeId, my_id => MyNodeId}),
 	    game_manager_loop(ManagerState#manager_state{leader=false});
 	{remove_leader, MyNodeId} ->
 	    %% this also makes sure that im not the leader
@@ -402,8 +421,10 @@ game_manager_loop(#manager_state{nodeid = MyNodeId} = ManagerState) ->
 	    game_manager_loop(ManagerState);
 	{'EXIT', Pid, Reason} ->
 	    ?LOG("Process ~p died : ~p~n", [Pid, Reason]),
+	    ?LOG_ERROR("Process died", #{pid => Pid, reason => Reason}),
 	    case whereis(game_logic) of
 		undefined -> %% game_logic is dead
+		    ?LOG_ERROR("Game logic process died, shutting down", #{node_id => MyNodeId}),
 		    message_passer:stop(),
 		    clock:stop(),
 		    ?LOG("I am dying~n",[]);

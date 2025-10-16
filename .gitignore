@@ -1,2 +1,6 @@
 *.beam
 *\~
+
+# Log files and directory
+logs/
+*.log

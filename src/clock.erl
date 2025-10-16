@@ -21,10 +21,12 @@ start(TimeOut) ->
     spawn(clock, init, [TimeOut]).
 
 init(TimeOut) ->
+    ?LOG_INFO("Game clock initialized", #{timeout => TimeOut}),
     register(game_clock, self()),
     loop(TimeOut).
 
 stop() ->
+    ?LOG_INFO("Stopping game clock"),
     game_clock ! {self(), stop},
     receive
 	_ ->
@@ -44,12 +46,14 @@ get_new_foods(Tick) ->
     end.
 
 pause() ->
+    ?LOG_DEBUG("Game clock paused"),
     game_clock ! {pause},
     ok.
 
 resume() ->
     resume(?CLOCK_TIME).
 resume(TimeOut) ->
+    ?LOG_DEBUG("Game clock resumed", #{timeout => TimeOut}),
     game_clock ! {resume, TimeOut},
     ok.
 
@@ -59,6 +63,7 @@ get_new_player_positions() ->
     NewPos.
 
 set_tick(NewTick) ->
+    ?LOG_DEBUG("Clock tick set", #{tick => NewTick}),
     game_clock ! {set_tick, NewTick},
     ok.
 
@@ -80,17 +85,23 @@ loop(Time, Tick) ->
 	Time ->
 	    case game_manager:is_leader() of
 		true ->
+		    ?LOG_DEBUG("Clock tick (leader)", #{tick => Tick}),
 		    %% Generate food every FOOD_GENERATION_INTERVAL.
 		    Options = case get_new_player_positions() of % each is {SnakeId, Position(a list of coords)}
 				  [] -> [];
-				  L -> [{newpos, L}]
+				  L -> 
+				      ?LOG_DEBUG("Broadcasting new player positions", #{player_count => length(L), tick => Tick}),
+				      [{newpos, L}]
 			      end,
 		    Options1 = case get_new_foods(Tick) of
 				   [] -> Options;
-				   NewFoods -> [{food, NewFoods}|Options]
+				   NewFoods -> 
+				       ?LOG_DEBUG("Broadcasting new food", #{food_count => length(NewFoods), tick => Tick}),
+				       [{food, NewFoods}|Options]
 			       end,
 		    game_manager:broadcast_tick(Tick, Options1);
 		_Else ->
+		    ?LOG_DEBUG("Clock tick (follower)", #{tick => Tick}),
 		    %% TODO: maybe grab the current tick value from the gamelogic
 		    nothing
 	    end,

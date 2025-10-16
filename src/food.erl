@@ -12,11 +12,15 @@ generate_foods(GameState) ->
     Offset = generate_random_number(XSize*YSize - 1),
     X = Offset rem XSize,
     Y = Offset div XSize,
+    ?LOG_DEBUG("Attempting to generate food", #{position => {X, Y}, tick => CurrentTick}),
     case is_block_occupied(GameState, X, Y) of
         true ->
+            ?LOG_DEBUG("Food position occupied, retrying", #{position => {X, Y}}),
             generate_foods(GameState);
         false ->
-            NewFood = #food{position = [{X,Y}], value = 1, alive_till_tick = CurrentTick + generate_random_interval()},
+            AliveTill = CurrentTick + generate_random_interval(),
+            NewFood = #food{position = [{X,Y}], value = 1, alive_till_tick = AliveTill},
+            ?LOG_DEBUG("Food generated successfully", #{position => {X, Y}, value => 1, alive_till => AliveTill}),
             NewGameState = GameState#game_state{new_foods = [NewFood]},
             NewGameState
     end.
@@ -42,4 +46,8 @@ get_new_foods() ->
     GameState = game_logic:get_game_state(),
     #game_state{new_foods = NewFoods} = GameState,
     ?LOG("Yaaay New foods: ~p~n", [NewFoods]),
+    case NewFoods of
+        [] -> ok;
+        _ -> ?LOG_DEBUG("New foods retrieved", #{food_count => length(NewFoods)})
+    end,
     NewFoods.

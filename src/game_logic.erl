@@ -63,6 +63,7 @@ stop() ->
     done.
 
 init(Id, NodeIdList) ->
+    ?LOG_INFO("Initializing game logic", #{node_id => Id, players => NodeIdList}),
 
     %%Snakes = gen_snakes(),
     Obstacles = gen_obstacles(),
@@ -77,10 +78,12 @@ init(Id, NodeIdList) ->
     %% populate process dictionary with expected_events
     put(expected_events, []),
 
+    ?LOG_DEBUG("Starting snake UI", #{grid_size => GameState#game_state.size}),
     snake_ui:start(GameState#game_state.size),
 
     %% there is a queue for each snake
     ReceivedMoveQueue = [{NodeId, queue:new()} || NodeId <- NodeIdList ],
+    ?LOG_INFO("Game logic initialized successfully", #{player_count => length(NodeIdList)}),
     game_loop(GameState, ReceivedMoveQueue).
 
 gen_obstacles() ->
@@ -128,7 +131,8 @@ update_game_state(GameState) ->
 %% possible values for direction are the atoms [up, down, left, right]
 %% returns the atom ok
 %%%
-send_event(Direction) ->
+	send_event(Direction) ->
+    ?LOG_DEBUG("Player event sent", #{direction => Direction}),
     game_logic ! {event, Direction},
     ok.
 
@@ -136,6 +140,7 @@ send_event(Direction) ->
 %% when it has received all expected events.
 
 start_game() ->
+    ?LOG_INFO("Starting game"),
     game_logic ! {start_game},
     ok.
 
@@ -190,6 +195,7 @@ game_loop(#game_state{state=new, myid=MyId}=GameState, RMQ) ->
 	    put(unseen_nodes, Unseen),
 	    prepare_to_join(GameState, RMQ);
 	{start_game} ->
+	    ?LOG_INFO("Game started", #{player_count => length(GameState#game_state.snakes)}),
 	    %%explicitly display obstacles before starting the game
 	    snake_ui:display_obstacles(GameState#game_state.obstacles),
 
@@ -233,6 +239,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    ?LOG("Game Logic Dying~n",[]);
 	{add_player, NodeId, HandlerId} ->
 	    ?LOG("Adding player ~p~n", [NodeId]),
+	    ?LOG_INFO("Adding new player to game", #{player_id => NodeId, handler_id => HandlerId}),
 
 	    %% create a new snake in game state, create a received move queue entry
 	    #game_state{snakes=Snakes} = GameState,
@@ -254,6 +261,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	%% this will only match those events that are for the current clock
 	{move, SnakeId, Clock, []} ->
 	    ?LOG("move, empty move list~n",[]),
+	    ?LOG_DEBUG("Empty move list received", #{snake_id => SnakeId, clock => Clock}),
 	    %% an empty movelist should be ignored
 	    put(expected_events, get(expected_events) -- [SnakeId]),
 	    game_loop(GameState, ReceivedMoveQueue);
@@ -261,6 +269,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 	    ?LOG("move, movelist--> ~p~n", [MoveList]),
 	    %% put this move into the queue for snakeid
 	    ?LOG("Snake ~p Move event received: ~p~n", [SnakeId, MoveList]),
+	    ?LOG_DEBUG("Snake move event received", #{snake_id => SnakeId, clock => Clock, moves => MoveList}),
 	    put(expected_events, get(expected_events) -- [SnakeId]),
 	    Snakes = GameState#game_state.snakes,
 	    case {game_manager:is_leader(), lists:keyfind(SnakeId, #snake.id, Snakes)} of
@@ -283,6 +292,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		{_, false} ->
 		    %% shouldnt happen
 		    ?LOG("Error: received a move event from an unregistered snake ~p~n", [SnakeId]),
+		    ?LOG_ERROR("Move event from unregistered snake", #{snake_id => SnakeId, clock => Clock}),
 		    %% do nothing
 		    game_loop(GameState, ReceivedMoveQueue)
 	    end;
@@ -330,6 +340,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		MissingSnakes ->
 		    %% TODO: ask for it from other nodes or something involving a NACK
 		    ?LOG("DEBUG: Missing events from ~p~n", [MissingSnakes]),
+		    ?LOG_WARNING("Missing events from players", #{missing_snakes => MissingSnakes, clock => Clock}),
 		    case game_manager:is_leader() of
 			true ->
 			    %% pause clock
@@ -348,6 +359,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 			0 ->
 			    %% kill this missing node
 			    ?LOG("Killing the stupid snakes ~p~n", [MissingSnakes]),
+			    ?LOG_WARNING("Timeout: Killing unresponsive snakes", #{snakes => MissingSnakes, clock => Clock}),
 			    erase({tick, Clock}),
 			    lists:foreach(fun(SnakeId) ->
 						  self() ! {kill_snake, SnakeId},
@@ -361,6 +373,7 @@ game_loop(#game_state{state=started} = GameState, ReceivedMoveQueue) ->
 		    game_loop(GameState, ReceivedMoveQueue)
 	    end;
 	{kill_snake, SnakeId} ->
+	    ?LOG_INFO("Snake killed", #{snake_id => SnakeId}),
 
 	    IdList = get(expected_events) -- [SnakeId],
 	    put(expected_events, IdList),
@@ -525,11 +538,15 @@ detect_collision(#snake{position={[],[]}}, _ObstacleMap) ->
 detect_collision(Snake, ObstacleMap) ->
     %% true or false
     #snake{id=SnakeId, position=SnakePos} = Snake,
-    case dict:find(front(SnakePos), ObstacleMap) of
+    HeadPos = front(SnakePos),
+    case dict:find(HeadPos, ObstacleMap) of
 	{ok, [SnakeId]} ->
 	    false;
-	_Any ->
-	    true
+	{ok, Colliders} ->
+	    ?LOG_DEBUG("Collision detected", #{snake_id => SnakeId, position => HeadPos, colliders => Colliders}),
+	    true;
+	error ->
+	    false
     end.
 
 
@@ -541,12 +558,14 @@ process_dead_snakes([DeadSnake | OtherDeadSnakes],DeadSnakes1,RegeneratedSnakes,
     case SnakeLives > 0 of
 	true ->
 	    SnakeLivesLeft = SnakeLives - 1,
-	    {SnakeId, NewPosition, Dir}  = generate_new_snake_position(SnakeId, length(RegeneratedSnakes), GridSize), 
+	    {SnakeId, NewPosition, Dir}  = generate_new_snake_position(SnakeId, length(RegeneratedSnakes), GridSize),
+	    ?LOG_INFO("Snake regenerated", #{snake_id => SnakeId, lives_remaining => SnakeLivesLeft}),
 	    NewSnake = DeadSnake#snake{lives=SnakeLivesLeft,position=queue:from_list(NewPosition),direction = Dir,length=length(NewPosition)},
 	    Results1 = [{regenerated,SnakeId} | Results],
 	    RegeneratedSnakes1 = [NewSnake | RegeneratedSnakes],
 	    process_dead_snakes(OtherDeadSnakes,DeadSnakes1,RegeneratedSnakes1,Results1, GridSize);
 	false ->
+	    ?LOG_INFO("Snake permanently killed", #{snake_id => SnakeId, reason => no_lives_remaining}),
 	    Results1 = [{killed,SnakeId} | Results],
 	    DeadSnakes2 = [DeadSnake | DeadSnakes1],
 	    process_dead_snakes(OtherDeadSnakes,DeadSnakes2,RegeneratedSnakes,Results1, GridSize)
@@ -594,11 +613,14 @@ feed_snake(Snake, Foods) ->
     feed_snake(Snake, Foods, []).
 
 feed_snake(Snake, [Food | OtherFoods], DoneFoods) ->
-    #snake{position=PosQueue, length=SnakeLength, score=SnakeScore} = Snake,
+    #snake{id=SnakeId, position=PosQueue, length=SnakeLength, score=SnakeScore} = Snake,
     #food{position=FoodPos, value=FoodValue} = Food,
     case find_point_in_point_list(front(PosQueue), FoodPos) of
 	true ->
-	    {fed, {Snake#snake{length=SnakeLength + FoodValue, score=SnakeScore+100}, DoneFoods ++ OtherFoods}};
+	    NewScore = SnakeScore + 100,
+	    ?LOG_INFO("Snake ate food", #{snake_id => SnakeId, food_value => FoodValue, 
+	                                   new_score => NewScore, new_length => SnakeLength + FoodValue}),
+	    {fed, {Snake#snake{length=SnakeLength + FoodValue, score=NewScore}, DoneFoods ++ OtherFoods}};
 	false ->
 	    feed_snake(Snake, OtherFoods, [Food | DoneFoods])
     end;
@@ -674,20 +696,26 @@ move_snakes([], MoveQueue, DoneSnakes) ->
     {DoneSnakes, MoveQueue}.
 
 %% ignore directions in the opposite direction
-move_snake(#snake{direction='Down'} = Snake, 'Up')->
+move_snake(#snake{id=SnakeId, direction='Down'} = Snake, 'Up')->
+    ?LOG_WARNING("Invalid move: opposite direction", #{snake_id => SnakeId, current => 'Down', attempted => 'Up'}),
     Snake;
-move_snake(#snake{direction='Up'} = Snake, 'Down')->
+move_snake(#snake{id=SnakeId, direction='Up'} = Snake, 'Down')->
+    ?LOG_WARNING("Invalid move: opposite direction", #{snake_id => SnakeId, current => 'Up', attempted => 'Down'}),
     Snake;
-move_snake(#snake{direction='Left'} = Snake, 'Right')->
+move_snake(#snake{id=SnakeId, direction='Left'} = Snake, 'Right')->
+    ?LOG_WARNING("Invalid move: opposite direction", #{snake_id => SnakeId, current => 'Left', attempted => 'Right'}),
     Snake;
-move_snake(#snake{direction='Right'} = Snake, 'Left')->
+move_snake(#snake{id=SnakeId, direction='Right'} = Snake, 'Left')->
+    ?LOG_WARNING("Invalid move: opposite direction", #{snake_id => SnakeId, current => 'Right', attempted => 'Left'}),
     Snake;
 %% actually move the snake
 move_snake(#snake{position={[],[]}}=Snake, _D) ->
     Snake;
-move_snake(#snake{position=Q, length=L} = Snake, D) ->
+move_snake(#snake{id=SnakeId, position=Q, length=L} = Snake, D) ->
     Fun = move_snake_function(D),
-    Q1 = add_to_front(Fun(front(Q)), Q),
+    NewHead = Fun(front(Q)),
+    Q1 = add_to_front(NewHead, Q),
+    ?LOG_DEBUG("Snake moved", #{snake_id => SnakeId, direction => D, new_head => NewHead}),
     Snake#snake{position=resize_snake_position(Q1, L), direction=D}.
 
 resize_snake_position(Q, Length) ->

@@ -12,11 +12,15 @@
 
 
 start() ->
+    logger_config:init(info),
+    ?LOG_INFO("Starting game server"),
     Port = get_server_port(),
+    ?LOG_INFO("Game server port configured", #{port => Port}),
     Pid = start_server(Port),
     register(game_server, Pid).
 
 stop() ->
+    ?LOG_INFO("Stopping game server"),
     connect_msg_disconnect("localhost", get_server_port(), {stop}),
     done.
 
@@ -37,11 +41,17 @@ connect_msg_disconnect(Host, Port, Msg) ->
     gen_tcp:close(Socket).
 
 start_server(Port) ->
-    {ok, Listen} = gen_tcp:listen(Port, [binary,
-					 {packet,0},
-					 {reuseaddr, true},
-					 {active, true}]),
-    spawn(game_server, server_loop, [Listen, #comm_state{}]).
+    case gen_tcp:listen(Port, [binary,
+			       {packet,0},
+			       {reuseaddr, true},
+			       {active, true}]) of
+	{ok, Listen} ->
+	    ?LOG_INFO("Server listening on port", #{port => Port}),
+	    spawn(game_server, server_loop, [Listen, #comm_state{}]);
+	{error, Reason} ->
+	    ?LOG_ERROR("Failed to start server", #{port => Port, reason => Reason}),
+	    error(Reason)
+    end.
 
 get_server_port() ->
     case get(server_port) of
@@ -110,18 +120,20 @@ process_connection(Socket, #comm_state{game_list = GameList, gameid = CurrentGam
 		    end,
 		    CommState;
 
-		%% receive message from other nodes to add new nodes to a game and to
-		%% start a new game
-		{set, add_game, Name} ->
-		    NextGameId = CurrentGameId + 1,
-		    gen_tcp:send(Socket, term_to_binary({gameid, NextGameId})),
-		    NewGameList = lists:keystore(NextGameId, 1, GameList, {NextGameId, Name, []}),
-		    CommState#comm_state{gameid=NextGameId, game_list=NewGameList};
+	%% receive message from other nodes to add new nodes to a game and to
+	%% start a new game
+	{set, add_game, Name} ->
+	    NextGameId = CurrentGameId + 1,
+	    ?LOG_INFO("New game created on server", #{game_id => NextGameId, game_name => Name}),
+	    gen_tcp:send(Socket, term_to_binary({gameid, NextGameId})),
+	    NewGameList = lists:keystore(NextGameId, 1, GameList, {NextGameId, Name, []}),
+	    CommState#comm_state{gameid=NextGameId, game_list=NewGameList};
 
-		{set, remove_game, GameId} ->
-		    NewGameList = lists:keydelete(GameId, 1, GameList),
-		    gen_tcp:send(Socket, term_to_binary({ok, game_removed})),
-		    CommState#comm_state{game_list=NewGameList};
+	{set, remove_game, GameId} ->
+	    ?LOG_INFO("Game removed from server", #{game_id => GameId}),
+	    NewGameList = lists:keydelete(GameId, 1, GameList),
+	    gen_tcp:send(Socket, term_to_binary({ok, game_removed})),
+	    CommState#comm_state{game_list=NewGameList};
 		%% the person who is responsible for adding the player sends this message
 		{set, add_player, {GameId, {PlayerId, Ip, Port} = Player}} ->
 		    Player1 = case Ip of
@@ -131,16 +143,18 @@ process_connection(Socket, #comm_state{game_list = GameList, gameid = CurrentGam
 				  Ip ->
 				      Player
 			      end,
-		    case lists:keyfind(GameId, 1, GameList) of
-			{GameId, Name, NodeList} ->
-			    NewNodeList = [Player1 | NodeList],
-			    NewGameList = lists:keystore(GameId, 1, GameList, {GameId, Name, NewNodeList}),
-			    gen_tcp:send(Socket, term_to_binary({ok, player_added})),
-			    CommState#comm_state{game_list=NewGameList};
-			false ->
-			    gen_tcp:send(Socket, term_to_binary({error, {game_not_found, GameId}})),
-			    CommState
-		    end;
+		case lists:keyfind(GameId, 1, GameList) of
+		    {GameId, Name, NodeList} ->
+			NewNodeList = [Player1 | NodeList],
+			?LOG_INFO("Player added to game", #{game_id => GameId, player_id => PlayerId, game_size => length(NewNodeList)}),
+			NewGameList = lists:keystore(GameId, 1, GameList, {GameId, Name, NewNodeList}),
+			gen_tcp:send(Socket, term_to_binary({ok, player_added})),
+			CommState#comm_state{game_list=NewGameList};
+		    false ->
+			?LOG_WARNING("Attempted to add player to non-existent game", #{game_id => GameId, player_id => PlayerId}),
+			gen_tcp:send(Socket, term_to_binary({error, {game_not_found, GameId}})),
+			CommState
+		end;
 		{set, remove_player, {GameId, PlayerId}} ->
 		    case lists:keyfind(GameId, 1, GameList) of
 			{GameId, Name, NodeList} ->
@@ -171,6 +185,7 @@ process_connection(Socket, #comm_state{game_list = GameList, gameid = CurrentGam
 			    CommState
 		    end;
 		Any ->
+		    ?LOG_WARNING("Invalid message received by server", #{message => Any}),
 		    gen_tcp:send(Socket, term_to_binary({error, {invalid_message, Any}})),
 		    CommState
 	    end;
